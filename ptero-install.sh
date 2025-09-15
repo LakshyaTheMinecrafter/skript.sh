@@ -88,8 +88,8 @@ php artisan migrate --seed --force
 
 echo ">>> Creating first admin user..."
 php artisan p:user:make \
-    --email="${ADMIN_EMAIL}" \
     --username="${ADMIN_USERNAME}" \
+    --email="${ADMIN_EMAIL}" \
     --password="${ADMIN_PASSWORD}" \
     --admin
 
