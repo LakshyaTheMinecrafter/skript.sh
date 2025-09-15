@@ -91,8 +91,8 @@ php artisan p:user:make \
     --email="${ADMIN_EMAIL}" \
     --username="${ADMIN_USERNAME}" \
     --password="${ADMIN_PASSWORD}" \
-    --name="${ADMIN_FULLNAME}" \
-    --admin
+    --admin \
+    --force
 
 echo ">>> Setting correct permissions for Pterodactyl files..."
 chown -R www-data:www-data /var/www/pterodactyl/*
