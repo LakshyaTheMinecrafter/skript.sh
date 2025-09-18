@@ -1,5 +1,5 @@
 #!/bin/bash
-# wings.sh - Automated Pterodactyl Wings installer with Cloudflare auto-DNS
+# wings.sh - Automated Pterodactyl Wings installer with Cloudflare auto-DNS and firewalld setup
 # Author: FlyingAura
 # Run as root: sudo ./wings.sh
 
@@ -15,27 +15,27 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # ===== System update =====
-echo "[1/7] Updating system packages..."
+echo "[1/8] Updating system packages..."
 apt update && apt upgrade -y
 
 # ===== Docker install =====
-echo "[2/7] Installing Docker..."
+echo "[2/8] Installing Docker..."
 curl -sSL https://get.docker.com/ | CHANNEL=stable bash
 systemctl enable --now docker
 
 # ===== Swap accounting =====
-echo "[3/7] Enabling swap accounting..."
+echo "[3/8] Enabling swap accounting..."
 sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=".*"/GRUB_CMDLINE_LINUX_DEFAULT="swapaccount=1"/' /etc/default/grub
 update-grub
 
 # ===== Wings install =====
-echo "[4/7] Installing Pterodactyl Wings..."
+echo "[4/8] Installing Pterodactyl Wings..."
 mkdir -p /etc/pterodactyl
 curl -L -o /usr/local/bin/wings "https://github.com/pterodactyl/wings/releases/latest/download/wings_linux_$([[ "$(uname -m)" == "x86_64" ]] && echo "amd64" || echo "arm64")"
 chmod u+x /usr/local/bin/wings
 
 # ===== systemd service =====
-echo "[5/7] Creating systemd service for Wings..."
+echo "[5/8] Creating systemd service for Wings..."
 cat > /etc/systemd/system/wings.service << 'EOF'
 [Unit]
 Description=Pterodactyl Wings Daemon
@@ -62,11 +62,11 @@ systemctl daemon-reload
 systemctl enable --now wings
 
 # ===== Cloudflare auto-DNS =====
-echo "[6/7] Setting up Cloudflare auto-DNS record..."
+echo "[6/8] Setting up Cloudflare auto-DNS record..."
 # CONFIGURE THESE VARIABLES
-CF_API_TOKEN="Ve6F0M2s0xEizHu7fPw6DfpVPDOXCuKpgCGtEzrk"
-CF_ZONE_ID="99fd720b3ecd19f20068d94aeb1c5010"
-CF_DOMAIN="hexiumnodes.cloud"
+CF_API_TOKEN="your_api_token_here"
+CF_ZONE_ID="your_zone_id_here"
+CF_DOMAIN="example.com"
 SUB_PREFIX="node"
 COMMENT="$NODE_NAME"
 
@@ -114,6 +114,39 @@ ALLOC_RAM_MB=$((TOTAL_RAM_MB - 2048))
 TOTAL_DISK_MB=$(df --block-size=1M / | awk 'NR==2 {print $2}')
 ALLOC_DISK_MB=$((TOTAL_DISK_MB - 51200))
 
+# ===== Firewalld setup =====
+echo "[7/8] Installing and configuring firewalld..."
+apt update -y
+apt install -y firewalld
+
+# Disable other firewalls (ufw)
+ufw disable || true
+systemctl stop ufw || true
+systemctl disable ufw || true
+
+# Enable firewalld
+systemctl enable --now firewalld
+
+# Configure allowed ports
+# TCP
+firewall-cmd --permanent --add-port=2022/tcp
+firewall-cmd --permanent --add-port=5657/tcp
+firewall-cmd --permanent --add-port=56423/tcp
+firewall-cmd --permanent --add-port=8080/tcp
+firewall-cmd --permanent --add-port=25565-25800/tcp
+firewall-cmd --permanent --add-port=50000-50500/tcp
+firewall-cmd --permanent --add-port=19132/tcp
+# UDP
+firewall-cmd --permanent --add-port=8080/udp
+firewall-cmd --permanent --add-port=25565-25800/udp
+firewall-cmd --permanent --add-port=50000-50500/udp
+firewall-cmd --permanent --add-port=19132/udp
+
+firewall-cmd --reload
+echo "✅ Firewalld setup complete!"
+echo "Allowed TCP: 2022, 5657, 56423, 8080, 25565-25800, 19132, 50000-50500"
+echo "Allowed UDP: 8080, 25565-25800, 19132, 50000-50500"
+
 # ===== Summary =====
 echo
 echo "=============================================="
@@ -127,8 +160,5 @@ echo "  Wings Port  : 8080 (default)"
 echo "  RAM (alloc) : ${ALLOC_RAM_MB} MB (from total ${TOTAL_RAM_MB} MB)"
 echo "  Disk (alloc): ${ALLOC_DISK_MB} MB (from total ${TOTAL_DISK_MB} MB)"
 echo
-echo "⚠️  Reminder: Configure /etc/pterodactyl/config.yml using the token from your panel."
-echo
-echo "Next, secure your server by running the firewall setup script:"
-echo "  bash <(curl -s https://raw.githubusercontent.com/LakshyaTheMinecrafter/skript.sh/main/firewalld.sh)"
+echo "Your server is protected with firewalld and required ports are open."
 echo "=============================================="
