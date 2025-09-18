@@ -22,16 +22,18 @@ sudo firewall-cmd --permanent --add-port=5657/tcp
 sudo firewall-cmd --permanent --add-port=56423/tcp
 sudo firewall-cmd --permanent --add-port=8080/tcp
 sudo firewall-cmd --permanent --add-port=25565-25800/tcp
+sudo firewall-cmd --permanent --add-port=50000-50500/tcp
 sudo firewall-cmd --permanent --add-port=19132/tcp
 
 # UDP ports
 sudo firewall-cmd --permanent --add-port=8080/udp
 sudo firewall-cmd --permanent --add-port=25565-25800/udp
+sudo firewall-cmd --permanent --add-port=50000-50500/udp
 sudo firewall-cmd --permanent --add-port=19132/udp
 
 # Reload rules
 sudo firewall-cmd --reload
 
 echo "✅ Firewalld setup complete!"
-echo "Allowed TCP: 2022, 5657, 56423, 8080, 25565-25800, 19132"
-echo "Allowed UDP: 8080, 25565-25800, 19132"
+echo "Allowed TCP: 2022, 5657, 56423, 8080, 25565-25800, 19132, 50000-50500"
+echo "Allowed UDP: 8080, 25565-25800, 19132, 50000-50500"
