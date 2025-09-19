@@ -16,6 +16,9 @@ API_KEY=$CF_API
 ZONE_ID=$CF_ZONE
 DOMAIN=$CF_DOMAIN
 DNS_CREATED=$DNS_CREATED
+NODE_NAME=$NODE_NAME
+CF_NODE_NAME=$CF_NODE_NAME
+CF_GAME_NAME=$CF_GAME_NAME
 EOF
 }
 
@@ -171,7 +174,11 @@ if [[ "$DNS_CREATED" != "true" ]]; then
     DNS_CREATED=true
     save_env
 else
-    echo "✅ DNS already created, skipping..."
+    echo "✅ DNS already created, loading previous info..."
+    load_env
+    : "${NODE_NAME:="Unknown Node"}"
+    : "${CF_NODE_NAME:="node.$CF_DOMAIN"}"
+    : "${CF_GAME_NAME:="game.$CF_DOMAIN"}"
 fi
 
 # ==============================
