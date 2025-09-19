@@ -1,21 +1,32 @@
 #!/bin/bash
 set -e
 
-# -------------------- Root Check --------------------
-if [ "$EUID" -ne 0 ]; then
-  echo "❌ Please run as root."
-  exit 1
+# Ensure script is run as root
+if [[ $EUID -ne 0 ]]; then
+   echo "❌ This script must be run as root" 
+   exit 1
 fi
 
-# -------------------- Node Info --------------------
+# ---------------- Parse arguments ----------------
+while [[ $# -gt 0 ]]; do
+  key="$1"
+  case $key in
+    --api) CF_API="$2"; shift; shift ;;
+    --zone) CF_ZONE="$2"; shift; shift ;;
+    --domain) CF_DOMAIN="$2"; shift; shift ;;
+    *) shift ;;
+  esac
+done
+
+# ---------------- Prompt if missing ----------------
 read -p "Enter a name for this Wings node (used in comments): " NODE_NAME
-read -p "Enter your Cloudflare API Token: " CF_API
-read -p "Enter your Cloudflare Zone ID: " CF_ZONE
-read -p "Enter your Domain (example.com): " CF_DOMAIN
+[ -z "$CF_API" ] && read -p "Enter your Cloudflare API Token: " CF_API
+[ -z "$CF_ZONE" ] && read -p "Enter your Cloudflare Zone ID: " CF_ZONE
+[ -z "$CF_DOMAIN" ] && read -p "Enter your Domain (example.com): " CF_DOMAIN
 
-SERVER_IP=$(curl -s https://api.ipify.org)
+SERVER_IP=$(curl -s https://ipinfo.io/ip)
 
-# -------------------- Docker --------------------
+# ---------------- Install Docker if missing ----------------
 if command -v docker &> /dev/null; then
     echo "[1/7] Docker is already installed, skipping installation..."
 else
@@ -24,25 +35,25 @@ else
     sudo systemctl enable --now docker
 fi
 
-# -------------------- GRUB swapaccount --------------------
-echo "[2/7] Enabling swap accounting..."
+# ---------------- Enable swap accounting ----------------
 if grep -q "swapaccount=1" /etc/default/grub; then
-    echo "Swap accounting already enabled"
+    echo "[2/7] Swap accounting already enabled"
 else
-    sudo sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="/GRUB_CMDLINE_LINUX_DEFAULT="swapaccount=1 /' /etc/default/grub
-    sudo update-grub || true
+    echo '[2/7] Enabling swap accounting...'
+    sed -i 's|GRUB_CMDLINE_LINUX_DEFAULT="\(.*\)"|GRUB_CMDLINE_LINUX_DEFAULT="\1 swapaccount=1"|' /etc/default/grub || echo 'GRUB_CMDLINE_LINUX_DEFAULT="swapaccount=1"' >> /etc/default/grub
+    update-grub || true
 fi
 
-# -------------------- Wings --------------------
+# ---------------- Install Wings ----------------
 echo "[3/7] Installing Pterodactyl Wings..."
 sudo mkdir -p /etc/pterodactyl
 ARCH=$(uname -m)
 ARCH=${ARCH/x86_64/amd64}
 ARCH=${ARCH/aarch64/arm64}
 curl -L -o /usr/local/bin/wings "https://github.com/pterodactyl/wings/releases/latest/download/wings_linux_$ARCH"
-sudo chmod u+x /usr/local/bin/wings
+chmod +x /usr/local/bin/wings
 
-# Create systemd service
+# ---------------- Wings systemd service ----------------
 cat >/etc/systemd/system/wings.service <<EOL
 [Unit]
 Description=Pterodactyl Wings Daemon
@@ -65,38 +76,37 @@ RestartSec=5s
 WantedBy=multi-user.target
 EOL
 
-sudo systemctl enable --now wings
+systemctl enable --now wings
 
-# -------------------- Firewall --------------------
-echo "[4/7] Installing and configuring firewalld..."
-sudo apt update
+# ---------------- Firewalld ----------------
+echo "[4/7] Setting up Firewalld..."
+sudo apt update -y
 sudo apt install -y firewalld
-sudo ufw disable || true
-sudo systemctl stop ufw || true
-sudo systemctl disable ufw || true
 sudo systemctl enable --now firewalld
 
-# TCP ports
-for port in 80 2022 5657 56423 8080 25565-25800 50000-50500 19132; do
-    sudo firewall-cmd --permanent --add-port=$port/tcp
+# Add allowed ports
+TCP_PORTS="2022 5657 56423 8080 25565-25800 19132 50000-50500"
+UDP_PORTS="8080 25565-25800 19132 50000-50500"
+
+for p in $TCP_PORTS; do
+    sudo firewall-cmd --permanent --add-port=$p/tcp || true
 done
-# UDP ports
-for port in 8080 25565-25800 50000-50500 19132; do
-    sudo firewall-cmd --permanent --add-port=$port/udp
+for p in $UDP_PORTS; do
+    sudo firewall-cmd --permanent --add-port=$p/udp || true
 done
 sudo firewall-cmd --reload
-
 echo "✅ Firewalld setup complete!"
-echo "Allowed TCP: 2022, 5657, 56423, 8080, 25565-25800, 19132, 50000-50500"
-echo "Allowed UDP: 8080, 25565-25800, 19132, 50000-50500"
+echo "Allowed TCP: $TCP_PORTS"
+echo "Allowed UDP: $UDP_PORTS"
 
-# -------------------- Cloudflare --------------------
+# ---------------- Cloudflare DNS ----------------
 echo "[5/7] Creating Cloudflare DNS records..."
 NEXT_NODE=1
 while true; do
-    NODE_CHECK=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records?type=A&name=node-$NEXT_NODE.$CF_DOMAIN" \
-        -H "Authorization: Bearer $CF_API" -H "Content-Type: application/json" | grep "$SERVER_IP" || true)
-    if [[ -z "$NODE_CHECK" ]]; then
+    NODE_NAME_CHECK="node-$NEXT_NODE.$CF_DOMAIN"
+    RESPONSE=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records?type=A&name=$NODE_NAME_CHECK" \
+        -H "Authorization: Bearer $CF_API" -H "Content-Type: application/json")
+    if ! echo "$RESPONSE" | grep -q "\"name\":\"$NODE_NAME_CHECK\""; then
         break
     else
         NEXT_NODE=$((NEXT_NODE+1))
@@ -106,40 +116,28 @@ done
 CF_NODE_NAME="node-$NEXT_NODE.$CF_DOMAIN"
 CF_GAME_NAME="game-$NEXT_NODE.$CF_DOMAIN"
 
-# Node record
+# Create node record
 curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records" \
      -H "Authorization: Bearer $CF_API" \
      -H "Content-Type: application/json" \
-     --data '{"type":"A","name":"'"$CF_NODE_NAME"'","content":"'"$SERVER_IP"'","ttl":120,"comment":"'"$NODE_NAME"'"}'
+     --data "{\"type\":\"A\",\"name\":\"$CF_NODE_NAME\",\"content\":\"$SERVER_IP\",\"ttl\":120,\"comment\":\"$NODE_NAME\"}" > /dev/null
 
-# Game record
+# Create game record
 curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records" \
      -H "Authorization: Bearer $CF_API" \
      -H "Content-Type: application/json" \
-     --data '{"type":"A","name":"'"$CF_GAME_NAME"'","content":"'"$SERVER_IP"'","ttl":120,"comment":"'"$NODE_NAME"' game ip"}'
+     --data "{\"type\":\"A\",\"name\":\"$CF_GAME_NAME\",\"content\":\"$SERVER_IP\",\"ttl\":120,\"comment\":\"$NODE_NAME game ip\"}" > /dev/null
 
 echo "✅ DNS record created: $CF_NODE_NAME"
 echo "✅ DNS record created: $CF_GAME_NAME"
 
-# -------------------- SSL --------------------
+# ---------------- SSL ----------------
 echo "[6/7] Installing SSL..."
 sudo apt install -y certbot python3-certbot-nginx
-if ! command -v nginx &> /dev/null; then
-    sudo apt install -y nginx
-fi
-sudo systemctl enable --now nginx
-EMAIL="your-email@example.com" # replace with your email
-sudo certbot certonly --nginx -d "$CF_NODE_NAME" --non-interactive --agree-tos --email "$EMAIL"
-(crontab -l 2>/dev/null; echo "0 23 * * * certbot renew --quiet --deploy-hook 'systemctl restart nginx'") | crontab -
+certbot certonly --nginx -d "$CF_NODE_NAME" --non-interactive --agree-tos -m your-email@example.com || echo "⚠️ SSL setup failed. Make sure nginx is running and domain resolves correctly."
+(crontab -l 2>/dev/null; echo "0 23 * * * certbot renew --quiet --deploy-hook \"systemctl restart nginx\"") | crontab -
 
-# -------------------- Final Summary --------------------
-ALLOC_RAM_MB=$(free -m | awk '/^Mem:/{print $2}')
-TOTAL_RAM_MB=$ALLOC_RAM_MB
-ALLOC_DISK_MB=$(df --output=avail / | tail -1)
-TOTAL_DISK_MB=$(df --output=size / | tail -1)
-
-LOCATION=$(curl -s https://ipinfo.io/$SERVER_IP | jq -r '.city + ", " + .country')
-
+# ---------------- Final Info ----------------
 echo
 echo "=============================================="
 echo "✅ Wings Node Setup Complete!"
@@ -150,8 +148,14 @@ echo "  Wings FQDN  : $CF_NODE_NAME"
 echo "  Game FQDN   : $CF_GAME_NAME"
 echo "  Public IP   : $SERVER_IP"
 echo "  Wings Port  : 8080 (default)"
-echo "  RAM (alloc) : ${ALLOC_RAM_MB} MB (from total ${TOTAL_RAM_MB} MB)"
-echo "  Disk (alloc): ${ALLOC_DISK_MB} MB (from total ${TOTAL_DISK_MB} MB)"
+RAM_MB=$(free -m | awk '/Mem:/ {print $2}')
+ALLOC_RAM_MB=$((RAM_MB-1024))
+DISK_TOTAL=$(df --output=size -BM / | tail -1 | tr -d 'M ')
+DISK_AVAIL=$(df --output=avail -BM / | tail -1 | tr -d 'M ')
+echo "  RAM (alloc) : $ALLOC_RAM_MB MB (from total ${RAM_MB} MB)"
+echo "  Disk (alloc): ${DISK_AVAIL} MB (from total ${DISK_TOTAL} MB)"
+
+LOCATION=$(curl -s https://ipinfo.io/$SERVER_IP | jq -r '.city + ", " + .country')
 echo "  Location    : $LOCATION"
 echo
 echo "IP Aliases:"
@@ -159,8 +163,8 @@ echo "  Wings Node : $CF_NODE_NAME → $SERVER_IP"
 echo "  Game Node  : $CF_GAME_NAME → $SERVER_IP"
 echo
 echo "Open Ports:"
-echo "  TCP: 2022, 5657, 56423, 8080, 25565-25800, 19132, 50000-50500"
-echo "  UDP: 8080, 25565-25800, 19132, 50000-50500"
+echo "  TCP: $TCP_PORTS"
+echo "  UDP: $UDP_PORTS"
 echo
 echo "Your server is protected with firewalld and required ports are open."
 echo "=============================================="
