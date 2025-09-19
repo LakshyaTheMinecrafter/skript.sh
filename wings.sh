@@ -1,42 +1,80 @@
 #!/bin/bash
-# wings.sh - Full automated Pterodactyl Wings installer with Cloudflare DNS and firewalld
-# Author: FlyingAura
-# Run as root: sudo ./wings.sh
-
 set -e
 
-# ===== Prompt for node name =====
-read -rp "Enter a name for this Wings node (used for comments): " NODE_NAME
+### CONFIGURATION ###
+CLOUDFLARE_API_TOKEN="YOUR_API_TOKEN"
+CLOUDFLARE_ZONE_ID="YOUR_ZONE_ID"
+DOMAIN="yourdomain.com"
 
-# ===== Root check =====
-if [ "$EUID" -ne 0 ]; then
-  echo "❌ Please run this script as root (sudo ./wings.sh)"
-  exit 1
-fi
+### FUNCTIONS ###
+get_next_subdomain() {
+    local prefix=$1
+    local i=1
+    while true; do
+        local name="${prefix}-${i}"
+        local result=$(curl -s -X GET \
+            "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/dns_records?type=A&name=${name}.${DOMAIN}" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/json")
+        if [[ $(echo "$result" | grep -c '"count":0') -ge 1 ]]; then
+            echo "$name"
+            return
+        fi
+        i=$((i+1))
+    done
+}
 
-# ===== System update =====
+create_dns_record() {
+    local name=$1
+    local ip=$2
+    local comment=$3
+    curl -s -X POST "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/dns_records" \
+        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+        -H "Content-Type: application/json" \
+        --data "{
+          \"type\": \"A\",
+          \"name\": \"${name}\",
+          \"content\": \"${ip}\",
+          \"ttl\": 3600,
+          \"proxied\": false,
+          \"comment\": \"${comment}\"
+        }" >/dev/null
+}
+
+### START INSTALLER ###
+echo "Enter a name for this Wings node (used for comments): "
+read NODE_NAME
+
 echo "[1/8] Updating system packages..."
 apt update && apt upgrade -y
 
-# ===== Docker install =====
 echo "[2/8] Installing Docker..."
 curl -sSL https://get.docker.com/ | CHANNEL=stable bash
 systemctl enable --now docker
 
-# ===== Swap accounting =====
-echo "[3/8] Enabling swap accounting..."
-sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=".*"/GRUB_CMDLINE_LINUX_DEFAULT="swapaccount=1"/' /etc/default/grub
-update-grub
+echo "[3/8] Enabling swap accounting (if supported)..."
+if [ -f /etc/default/grub ]; then
+    cp /etc/default/grub /etc/default/grub.bak
+    sed -i '/^GRUB_CMDLINE_LINUX_DEFAULT=/d' /etc/default/grub
+    echo 'GRUB_CMDLINE_LINUX_DEFAULT="swapaccount=1"' >> /etc/default/grub
+    if command -v update-grub >/dev/null 2>&1; then
+        update-grub
+    elif command -v grub-mkconfig >/dev/null 2>&1; then
+        grub-mkconfig -o /boot/grub/grub.cfg
+    fi
+    echo "✅ Swap accounting enabled. Please reboot for changes to take effect."
+else
+    echo "ℹ️ No GRUB detected. Skipping swapaccount setup (Wings will still work fine)."
+fi
 
-# ===== Wings install =====
-echo "[4/8] Installing Pterodactyl Wings..."
+echo "[4/8] Installing Wings..."
 mkdir -p /etc/pterodactyl
-curl -L -o /usr/local/bin/wings "https://github.com/pterodactyl/wings/releases/latest/download/wings_linux_$([[ "$(uname -m)" == "x86_64" ]] && echo "amd64" || echo "arm64")"
+curl -L -o /usr/local/bin/wings \
+    "https://github.com/pterodactyl/wings/releases/latest/download/wings_linux_$([[ $(uname -m) == x86_64 ]] && echo amd64 || echo arm64)"
 chmod u+x /usr/local/bin/wings
 
-# ===== systemd service =====
 echo "[5/8] Creating systemd service for Wings..."
-cat > /etc/systemd/system/wings.service << 'EOF'
+cat >/etc/systemd/system/wings.service <<EOL
 [Unit]
 Description=Pterodactyl Wings Daemon
 After=docker.service
@@ -56,97 +94,18 @@ RestartSec=5s
 
 [Install]
 WantedBy=multi-user.target
-EOF
+EOL
 
-systemctl daemon-reload
 systemctl enable --now wings
 
-# ===== Cloudflare auto-DNS =====
-echo "[6/8] Setting up Cloudflare auto-DNS records..."
-# Prompt for Cloudflare credentials
-read -rp "Enter your Cloudflare API Token: " CF_API_TOKEN
-read -rp "Enter your Cloudflare Zone ID: " CF_ZONE_ID
-read -rp "Enter your root domain (example.com): " CF_DOMAIN
-SUB_PREFIX_NODE="node"
-SUB_PREFIX_GAME="game"
-COMMENT_NODE="$NODE_NAME"
-
-# Install dependencies
-apt install -y jq curl >/dev/null 2>&1
-
-# Get public IP
-SERVER_IP=$(curl -s https://ipv4.icanhazip.com)
-
-# Find first available subdomain
-for i in $(seq 1 50); do
-  NODE_CANDIDATE="${SUB_PREFIX_NODE}-${i}.${CF_DOMAIN}"
-  RECORD_ID=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records?name=$NODE_CANDIDATE" \
-    -H "Authorization: Bearer $CF_API_TOKEN" \
-    -H "Content-Type: application/json" | jq -r '.result[0].id')
-
-  if [ "$RECORD_ID" == "null" ] || [ -z "$RECORD_ID" ]; then
-    CF_NODE_NAME="$NODE_CANDIDATE"
-    CF_GAME_NAME="${SUB_PREFIX_GAME}-${i}.${CF_DOMAIN}"
-    break
-  fi
-done
-
-if [ -z "$CF_NODE_NAME" ]; then
-  echo "❌ No free subdomains found (1–50 tried)."
-  exit 1
-fi
-
-# Create Wings DNS record
-curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records" \
-  -H "Authorization: Bearer $CF_API_TOKEN" \
-  -H "Content-Type: application/json" \
-  --data "{
-    \"type\": \"A\",
-    \"name\": \"$CF_NODE_NAME\",
-    \"content\": \"$SERVER_IP\",
-    \"ttl\": 120,
-    \"proxied\": false,
-    \"comment\": \"$COMMENT_NODE\"
-  }" | jq .
-
-# Create Game DNS record
-curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records" \
-  -H "Authorization: Bearer $CF_API_TOKEN" \
-  -H "Content-Type: application/json" \
-  --data "{
-    \"type\": \"A\",
-    \"name\": \"$CF_GAME_NAME\",
-    \"content\": \"$SERVER_IP\",
-    \"ttl\": 120,
-    \"proxied\": false,
-    \"comment\": \"$NODE_NAME game IP\"
-  }" | jq .
-
-echo "✅ DNS records created:"
-echo "  Wings FQDN : $CF_NODE_NAME (comment: $NODE_NAME)"
-echo "  Game FQDN  : $CF_GAME_NAME (comment: $NODE_NAME game IP)"
-
-# ===== Resource calculation =====
-TOTAL_RAM_MB=$(free -m | awk '/^Mem:/{print $2}')
-ALLOC_RAM_MB=$((TOTAL_RAM_MB - 2048))
-TOTAL_DISK_MB=$(df --block-size=1M / | awk 'NR==2 {print $2}')
-ALLOC_DISK_MB=$((TOTAL_DISK_MB - 51200))
-
-# ===== Firewalld setup =====
-echo "[7/8] Installing and configuring firewalld..."
-apt update -y
+echo "[6/8] Configuring firewall..."
 apt install -y firewalld
-
-# Disable ufw
 ufw disable || true
 systemctl stop ufw || true
 systemctl disable ufw || true
-
-# Enable firewalld
 systemctl enable --now firewalld
 
-# Open required TCP and UDP ports
-# TCP
+# TCP ports
 firewall-cmd --permanent --add-port=2022/tcp
 firewall-cmd --permanent --add-port=5657/tcp
 firewall-cmd --permanent --add-port=56423/tcp
@@ -154,34 +113,40 @@ firewall-cmd --permanent --add-port=8080/tcp
 firewall-cmd --permanent --add-port=25565-25800/tcp
 firewall-cmd --permanent --add-port=50000-50500/tcp
 firewall-cmd --permanent --add-port=19132/tcp
-# UDP
+# UDP ports
 firewall-cmd --permanent --add-port=8080/udp
 firewall-cmd --permanent --add-port=25565-25800/udp
 firewall-cmd --permanent --add-port=50000-50500/udp
 firewall-cmd --permanent --add-port=19132/udp
-
 firewall-cmd --reload
-echo "✅ Firewalld setup complete!"
-echo "Allowed TCP: 2022, 5657, 56423, 8080, 25565-25800, 19132, 50000-50500"
-echo "Allowed UDP: 8080, 25565-25800, 19132, 50000-50500"
 
-# ===== Final summary including IP aliases =====
+echo "[7/8] Creating DNS records on Cloudflare..."
+IP=$(curl -s ifconfig.me)
+SUBDOMAIN=$(get_next_subdomain "node")
+GAMESUBDOMAIN=$(echo "$SUBDOMAIN" | sed 's/node/game/')
+create_dns_record "$SUBDOMAIN" "$IP" "$NODE_NAME"
+create_dns_record "$GAMESUBDOMAIN" "$IP" "$NODE_NAME game ip"
+
+FQDN="${SUBDOMAIN}.${DOMAIN}"
+GAMEFQDN="${GAMESUBDOMAIN}.${DOMAIN}"
+
+echo "[8/8] Calculating resources..."
+TOTAL_RAM=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+ALLOC_RAM=$((TOTAL_RAM - 2097152)) # subtract 2GB in KB
+ALLOC_RAM_MB=$((ALLOC_RAM / 1024))
+TOTAL_DISK=$(df --output=size -k / | tail -1)
+ALLOC_DISK=$((TOTAL_DISK - 52428800)) # subtract 50GB in KB
+ALLOC_DISK_MB=$((ALLOC_DISK / 1024))
+
+### OUTPUT ###
 echo
 echo "=============================================="
-echo "✅ Wings Node Setup Complete!"
-echo "Details for adding this node in the Pterodactyl Panel:"
-echo
-echo "  Node Name   : $NODE_NAME"
-echo "  Wings FQDN  : $CF_NODE_NAME"
-echo "  Game FQDN   : $CF_GAME_NAME"
-echo "  Public IP   : $SERVER_IP"
-echo "  Wings Port  : 8080 (default)"
-echo "  RAM (alloc) : ${ALLOC_RAM_MB} MB (from total ${TOTAL_RAM_MB} MB)"
-echo "  Disk (alloc): ${ALLOC_DISK_MB} MB (from total ${TOTAL_DISK_MB} MB)"
-echo
-echo "IP Aliases:"
-echo "  Wings Node : $CF_NODE_NAME → $SERVER_IP"
-echo "  Game Node  : $CF_GAME_NAME → $SERVER_IP"
-echo
-echo "Your server is protected with firewalld and required ports are open."
+echo "✅ Wings node installed successfully!"
+echo "Panel Setup Info:"
+echo " - FQDN: $FQDN"
+echo " - Game IP Alias: $GAMEFQDN"
+echo " - IP Address: $IP"
+echo " - Allocatable RAM: ${ALLOC_RAM_MB} MB"
+echo " - Allocatable Disk: ${ALLOC_DISK_MB} MB"
+echo " - Comment/Node Name: $NODE_NAME"
 echo "=============================================="
