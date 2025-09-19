@@ -88,18 +88,21 @@ echo "Open Ports:"
 echo "  TCP: 2022, 5657, 56423, 8080, 25565-25800, 19132, 50000-50500"
 echo "  UDP: 8080, 25565-25800, 19132, 50000-50500"
 
-# -------------------- Cloudflare DNS --------------------
-echo "[5/7] Creating Cloudflare DNS records..."
+# ==================== Cloudflare DNS ====================
+echo "[*] Creating Cloudflare DNS records..."
 
+# Ask for Wings node name at the start
+read -p "Enter a name for this Wings node (used in DNS comments): " NODE_NAME
+
+# Detect next free node number (without jq)
 NEXT_NODE=1
 while true; do
     NODE_CHECK=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records?type=A&name=node-$NEXT_NODE.$CF_DOMAIN" \
-        -H "Authorization: Bearer $CF_API" \
-        -H "Content-Type: application/json" | grep -o '"id":')
-    if [[ -z "$NODE_CHECK" ]]; then
-        break
-    else
+        -H "Authorization: Bearer $CF_API" -H "Content-Type: application/json")
+    if echo "$NODE_CHECK" | grep -q '"id":'; then
         NEXT_NODE=$((NEXT_NODE+1))
+    else
+        break
     fi
 done
 
@@ -107,16 +110,28 @@ CF_NODE_NAME="node-$NEXT_NODE.$CF_DOMAIN"
 CF_GAME_NAME="game-$NEXT_NODE.$CF_DOMAIN"
 
 # Create node A record
-curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records" \
+NODE_RESPONSE=$(curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records" \
      -H "Authorization: Bearer $CF_API" \
      -H "Content-Type: application/json" \
-     --data '{"type":"A","name":"'"$CF_NODE_NAME"'","content":"'"$SERVER_IP"'","ttl":120,"comment":"'"$NODE_NAME"'"}'
+     --data '{"type":"A","name":"'"$CF_NODE_NAME"'","content":"'"$SERVER_IP"'","ttl":120,"comment":"'"$NODE_NAME"'"}')
+
+if echo "$NODE_RESPONSE" | grep -q '"success":true'; then
+    echo "✅ Node DNS record created: $CF_NODE_NAME"
+else
+    echo "⚠️ Failed to create node DNS record. Response: $NODE_RESPONSE"
+fi
 
 # Create game A record
-curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records" \
+GAME_RESPONSE=$(curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records" \
      -H "Authorization: Bearer $CF_API" \
      -H "Content-Type: application/json" \
-     --data '{"type":"A","name":"'"$CF_GAME_NAME"'","content":"'"$SERVER_IP"'","ttl":120,"comment":"'"$NODE_NAME"' game ip"}'
+     --data '{"type":"A","name":"'"$CF_GAME_NAME"'","content":"'"$SERVER_IP"'","ttl":120,"comment":"'"$NODE_NAME"' game ip"}')
+
+if echo "$GAME_RESPONSE" | grep -q '"success":true'; then
+    echo "✅ Game DNS record created: $CF_GAME_NAME"
+else
+    echo "⚠️ Failed to create game DNS record. Response: $GAME_RESPONSE"
+fi
 
 
 # -------------------- SSL --------------------
