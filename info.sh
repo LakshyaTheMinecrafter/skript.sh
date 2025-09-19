@@ -18,13 +18,20 @@ echo -e "${YELLOW}Uptime:${RESET} $(uptime -p)\n"
 # --- Public IP & Geolocation ---
 IP=$(curl -s ifconfig.me)
 echo -e "${YELLOW}Public IP:${RESET} $IP"
-GEO=$(curl -s ipinfo.io/$IP)
-CITY=$(echo $GEO | grep -oP '(?<="city":")[^"]*')
-REGION=$(echo $GEO | grep -oP '(?<="region":")[^"]*')
-COUNTRY=$(echo $GEO | grep -oP '(?<="country":")[^"]*')
-ISP=$(echo $GEO | grep -oP '(?<="org":")[^"]*')
-echo -e "${YELLOW}Location:${RESET} $CITY, $REGION, $COUNTRY"
-echo -e "${YELLOW}ISP:${RESET} $ISP\n"
+
+# Check if jq is installed
+if command -v jq >/dev/null 2>&1; then
+    GEO=$(curl -s ipinfo.io/$IP)
+    CITY=$(echo "$GEO" | jq -r '.city // "N/A"')
+    REGION=$(echo "$GEO" | jq -r '.region // "N/A"')
+    COUNTRY=$(echo "$GEO" | jq -r '.country // "N/A"')
+    ISP=$(echo "$GEO" | jq -r '.org // "N/A"')
+    echo -e "${YELLOW}Location:${RESET} $CITY, $REGION, $COUNTRY"
+    echo -e "${YELLOW}ISP:${RESET} $ISP\n"
+else
+    echo -e "${YELLOW}Location:${RESET} N/A (install jq for detailed info)"
+    echo -e "${YELLOW}ISP:${RESET} N/A\n"
+fi
 
 # --- CPU Info ---
 CPU_MODEL=$(grep -m1 "model name" /proc/cpuinfo | cut -d: -f2 | xargs)
@@ -68,7 +75,6 @@ echo ""
 # --- Virtualization Check ---
 VIRT_TYPE=$(systemd-detect-virt 2>/dev/null)
 if [ -z "$VIRT_TYPE" ]; then
-    # fallback
     if [ -f /proc/user_beancounters ]; then
         VIRT_TYPE="OpenVZ/LXC"
     elif grep -q "lxc" /proc/1/environ 2>/dev/null; then
