@@ -42,7 +42,7 @@ done
 # ==============================
 load_env
 
-# If not in env, ask interactively
+# Ask interactively if not set
 if [[ -z "$CF_API" ]]; then
     read -p "Enter your Cloudflare API Token: " CF_API
 fi
@@ -54,24 +54,24 @@ if [[ -z "$CF_DOMAIN" ]]; then
 fi
 
 # ==============================
-# System update
+# Step 1: Update system
 # ==============================
-print_step "Updating system packages..."
+print_step "[1/8] Updating system packages..."
 DEBIAN_FRONTEND=noninteractive apt-get -y -qq update
 DEBIAN_FRONTEND=noninteractive apt-get -y -qq upgrade
 
 # ==============================
-# Install Docker
+# Step 2: Install Docker
 # ==============================
-print_step "Installing Docker..."
+print_step "[2/8] Installing Docker..."
 curl -sSL https://get.docker.com/ | CHANNEL=stable bash
 systemctl enable --now docker
 
 # ==============================
-# Enable swapaccount if GRUB exists
+# Step 3: Enable swapaccount if GRUB exists
 # ==============================
+print_step "[3/8] Enabling swap accounting..."
 if [[ -f /etc/default/grub ]]; then
-    print_step "Enabling swap accounting..."
     sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="[^"]*"/GRUB_CMDLINE_LINUX_DEFAULT="swapaccount=1"/' /etc/default/grub
     update-grub || true
 else
@@ -79,18 +79,19 @@ else
 fi
 
 # ==============================
-# Install Wings
+# Step 4: Install Wings
 # ==============================
-print_step "Installing Pterodactyl Wings..."
+print_step "[4/8] Installing Pterodactyl Wings..."
 mkdir -p /etc/pterodactyl
 curl -L -o /usr/local/bin/wings \
-  "https://github.com/pterodactyl/wings/releases/latest/download/wings_linux_$([[ "$(uname -m)" == "x86_64" ]] && echo "amd64" || echo "arm64")"
+  "https://github.com/pterodactyl/wings/releases/latest/download/wings_linux_$([[ "$(uname -m)" == "x86_64" ]] && echo "amd64" || echo "arm64")" \
+  --progress-bar
 chmod u+x /usr/local/bin/wings
 
 # ==============================
-# Create systemd service
+# Step 5: Create systemd service
 # ==============================
-print_step "Creating systemd service for Wings..."
+print_step "[5/8] Creating systemd service for Wings..."
 cat > /etc/systemd/system/wings.service <<'EOF'
 [Unit]
 Description=Pterodactyl Wings Daemon
@@ -116,10 +117,10 @@ EOF
 systemctl enable --now wings
 
 # ==============================
-# Firewalld setup
+# Step 6: Firewalld setup
 # ==============================
-print_step "Installing and configuring firewalld..."
-DEBIAN_FRONTEND=noninteractive apt-get -y -qq install firewalld
+print_step "[6/8] Installing and configuring firewalld..."
+DEBIAN_FRONTEND=noninteractive apt-get -y install firewalld >/dev/null 2>&1 || true
 
 ufw disable >/dev/null 2>&1 || true
 systemctl stop ufw >/dev/null 2>&1 || true
@@ -127,32 +128,22 @@ systemctl disable ufw >/dev/null 2>&1 || true
 
 systemctl enable --now firewalld >/dev/null 2>&1
 
-# TCP Ports
-firewall-cmd --permanent --add-port=2022/tcp >/dev/null
-firewall-cmd --permanent --add-port=5657/tcp >/dev/null
-firewall-cmd --permanent --add-port=56423/tcp >/dev/null
-firewall-cmd --permanent --add-port=8080/tcp >/dev/null
-firewall-cmd --permanent --add-port=25565-25800/tcp >/dev/null
-firewall-cmd --permanent --add-port=50000-50500/tcp >/dev/null
-firewall-cmd --permanent --add-port=19132/tcp >/dev/null
-
-# UDP Ports
-firewall-cmd --permanent --add-port=8080/udp >/dev/null
-firewall-cmd --permanent --add-port=25565-25800/udp >/dev/null
-firewall-cmd --permanent --add-port=50000-50500/udp >/dev/null
-firewall-cmd --permanent --add-port=19132/udp >/dev/null
-
+ports=(2022 5657 56423 8080 25565-25800 50000-50500 19132)
+for p in "${ports[@]}"; do
+    firewall-cmd --permanent --add-port=${p}/tcp 2>/dev/null || true
+    firewall-cmd --permanent --add-port=${p}/udp 2>/dev/null || true
+done
 firewall-cmd --reload >/dev/null
 echo "✅ Firewalld setup complete!"
 
 # ==============================
-# Cloudflare DNS Setup
+# Step 7: Cloudflare DNS Setup
 # ==============================
-if [[ "$DNS_CREATED" != "true" ]]; then
-    print_step "Setting up Cloudflare DNS records..."
+print_step "[7/8] Setting up Cloudflare DNS records..."
+SERVER_IP=$(curl -s http://ipv4.icanhazip.com)
 
+if [[ "$DNS_CREATED" != "true" ]]; then
     read -p "Enter a name for this Wings node (used for comments): " NODE_NAME
-    SERVER_IP=$(curl -s http://ipv4.icanhazip.com)
 
     # Find next available node number
     i=1
@@ -161,21 +152,20 @@ if [[ "$DNS_CREATED" != "true" ]]; then
         i=$((i+1))
     done
 
-    CF_RECORD_NAME="node-$i.$CF_DOMAIN"
+    CF_NODE_NAME="node-$i.$CF_DOMAIN"
     CF_GAME_NAME="game-$i.$CF_DOMAIN"
 
-    # Create node-{i} record
+    # Create node and game records
     curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records" \
         -H "Authorization: Bearer $CF_API" -H "Content-Type: application/json" \
-        --data "{\"type\":\"A\",\"name\":\"node-$i.$CF_DOMAIN\",\"content\":\"$SERVER_IP\",\"ttl\":120,\"proxied\":false,\"comment\":\"$NODE_NAME\"}" >/dev/null
+        --data "{\"type\":\"A\",\"name\":\"$CF_NODE_NAME\",\"content\":\"$SERVER_IP\",\"ttl\":120,\"proxied\":false,\"comment\":\"$NODE_NAME\"}" >/dev/null
 
-    # Create game-{i} record
     curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records" \
         -H "Authorization: Bearer $CF_API" -H "Content-Type: application/json" \
-        --data "{\"type\":\"A\",\"name\":\"game-$i.$CF_DOMAIN\",\"content\":\"$SERVER_IP\",\"ttl\":120,\"proxied\":false,\"comment\":\"$NODE_NAME game ip\"}" >/dev/null
+        --data "{\"type\":\"A\",\"name\":\"$CF_GAME_NAME\",\"content\":\"$SERVER_IP\",\"ttl\":120,\"proxied\":false,\"comment\":\"$NODE_NAME game ip\"}" >/dev/null
 
     echo "✅ DNS records created:"
-    echo " - $CF_RECORD_NAME"
+    echo " - $CF_NODE_NAME"
     echo " - $CF_GAME_NAME"
 
     DNS_CREATED=true
@@ -185,25 +175,36 @@ else
 fi
 
 # ==============================
-# Resource info
+# Step 8: Resource info
 # ==============================
-print_step "System resource info for panel setup..."
+print_step "[8/8] Gathering system resource info..."
 
-# RAM in MB (subtract 2048 MB)
-TOTAL_RAM=$(grep MemTotal /proc/meminfo | awk '{print $2}')
-TOTAL_RAM_MB=$((TOTAL_RAM / 1024))
-ALLOC_RAM=$((TOTAL_RAM_MB - 2048))
+TOTAL_RAM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+TOTAL_RAM_MB=$((TOTAL_RAM_KB / 1024))
+ALLOC_RAM_MB=$((TOTAL_RAM_MB - 2048))
 
-# Disk in MB (subtract 51200 MB = 50GB)
-ALLOC_DISK=$(df --output=avail -m / | tail -1)
-ALLOC_DISK=$((ALLOC_DISK - 51200))
+TOTAL_DISK_MB=$(df --output=avail -m / | tail -1)
+ALLOC_DISK_MB=$((TOTAL_DISK_MB - 51200))
 
-echo "RAM available for nodes: ${ALLOC_RAM} MB"
-echo "Disk available for nodes: ${ALLOC_DISK} MB"
-
-# Show only non-docker, non-loopback IPs
-echo "IP addresses:"
-ip -o -4 addr show | awk '!/docker0/ && !/lo/ {print $2 ": " $4}'
-
+# ==============================
+# Final summary including IP aliases
+# ==============================
 echo
-echo "✅ Wings installation complete!"
+echo "=============================================="
+echo "✅ Wings Node Setup Complete!"
+echo "Details for adding this node in the Pterodactyl Panel:"
+echo
+echo "  Node Name   : $NODE_NAME"
+echo "  Wings FQDN  : $CF_NODE_NAME"
+echo "  Game FQDN   : $CF_GAME_NAME"
+echo "  Public IP   : $SERVER_IP"
+echo "  Wings Port  : 8080 (default)"
+echo "  RAM (alloc) : ${ALLOC_RAM_MB} MB (from total ${TOTAL_RAM_MB} MB)"
+echo "  Disk (alloc): ${ALLOC_DISK_MB} MB (from total ${TOTAL_DISK_MB} MB)"
+echo
+echo "IP Aliases:"
+echo "  Wings Node : $CF_NODE_NAME → $SERVER_IP"
+echo "  Game Node  : $CF_GAME_NAME → $SERVER_IP"
+echo
+echo "Your server is protected with firewalld and required ports are open."
+echo "=============================================="
