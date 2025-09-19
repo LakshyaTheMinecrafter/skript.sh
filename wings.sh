@@ -4,45 +4,52 @@ set -e
 # --------------------------
 # Parse arguments
 # --------------------------
-while [[ "$#" -gt 0 ]]; do
+while [[ $# -gt 0 ]]; do
     case $1 in
-        --api) CF_API="$2"; shift ;;
-        --zone) CF_ZONE="$2"; shift ;;
-        --domain) CF_DOMAIN="$2"; shift ;;
-        *) echo "Unknown parameter passed: $1"; exit 1 ;;
+        --api) CF_API="$2"; shift 2;;
+        --zone) CF_ZONE="$2"; shift 2;;
+        --domain) CF_DOMAIN="$2"; shift 2;;
+        *) echo "Unknown argument: $1"; exit 1;;
     esac
-    shift
 done
 
-# Prompt if not passed
-[ -z "$CF_API" ] && read -rp "Enter Cloudflare API token: " CF_API
-[ -z "$CF_ZONE" ] && read -rp "Enter Cloudflare Zone ID: " CF_ZONE
-[ -z "$CF_DOMAIN" ] && read -rp "Enter your domain: " CF_DOMAIN
+# Ask for Wings node name (used in comments)
+read -rp "Enter a name for this Wings node (used for comments): " NODE_NAME
 
 # --------------------------
-# Step 1: Install Docker
+# Step 1: Install Docker if missing
 # --------------------------
-echo "[1/6] Installing Docker..."
-curl -sSL https://get.docker.com/ | CHANNEL=stable bash
-sudo systemctl enable --now docker
+echo "[1/6] Checking Docker installation..."
+if command -v docker >/dev/null 2>&1; then
+    echo "Docker is already installed, skipping installation."
+else
+    echo "Docker not found. Installing Docker..."
+    curl -sSL https://get.docker.com/ | CHANNEL=stable bash
+    sudo systemctl enable --now docker
+fi
 
 # --------------------------
-# Step 2: Enable swap accounting
+# Step 2: Enable swap accounting if GRUB exists
 # --------------------------
 echo "[2/6] Enabling swap accounting..."
-sudo sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT="\(.*\)"/GRUB_CMDLINE_LINUX_DEFAULT="\1 swapaccount=1"/' /etc/default/grub || true
-sudo update-grub || true
+if [[ -f /etc/default/grub ]]; then
+    sudo sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="/GRUB_CMDLINE_LINUX_DEFAULT="swapaccount=1 /' /etc/default/grub
+    sudo update-grub
+    echo "Swap accounting enabled."
+else
+    echo "No GRUB found, skipping swapaccount step."
+fi
 
 # --------------------------
 # Step 3: Install Wings
 # --------------------------
-echo "[3/6] Installing Wings..."
+echo "[3/6] Installing Pterodactyl Wings..."
 sudo mkdir -p /etc/pterodactyl
 curl -L -o /usr/local/bin/wings "https://github.com/pterodactyl/wings/releases/latest/download/wings_linux_$([[ "$(uname -m)" == "x86_64" ]] && echo "amd64" || echo "arm64")"
 sudo chmod u+x /usr/local/bin/wings
 
-# Create systemd service
-sudo tee /etc/systemd/system/wings.service > /dev/null <<'EOF'
+# Create systemd service for Wings
+sudo tee /etc/systemd/system/wings.service > /dev/null <<EOL
 [Unit]
 Description=Pterodactyl Wings Daemon
 After=docker.service
@@ -62,76 +69,72 @@ RestartSec=5s
 
 [Install]
 WantedBy=multi-user.target
-EOF
+EOL
 
 sudo systemctl enable --now wings
 
 # --------------------------
-# Step 4: Setup Firewall
+# Step 4: Firewalld setup
 # --------------------------
-echo "[4/6] Setting up firewalld..."
+echo "[4/6] Installing and configuring firewalld..."
 sudo apt update -y
 sudo apt install -y firewalld
-sudo ufw disable || true
-sudo systemctl stop ufw || true
-sudo systemctl disable ufw || true
 sudo systemctl enable --now firewalld
 
 # TCP ports
-for p in 2022 5657 56423 8080 25565-25800 50000-50500 19132; do
-    sudo firewall-cmd --permanent --add-port=$p/tcp
+for port in 2022 5657 56423 8080 25565-25800 50000-50500 19132; do
+    sudo firewall-cmd --permanent --add-port=${port}/tcp
 done
+
 # UDP ports
-for p in 8080 25565-25800 50000-50500 19132; do
-    sudo firewall-cmd --permanent --add-port=$p/udp
+for port in 8080 25565-25800 50000-50500 19132; do
+    sudo firewall-cmd --permanent --add-port=${port}/udp
 done
+
 sudo firewall-cmd --reload
 echo "✅ Firewalld setup complete!"
+echo "Open Ports:"
+echo "  TCP: 2022, 5657, 56423, 8080, 25565-25800, 19132, 50000-50500"
+echo "  UDP: 8080, 25565-25800, 19132, 50000-50500"
 
 # --------------------------
 # Step 5: Cloudflare DNS
 # --------------------------
-echo "[5/6] Configuring Cloudflare DNS..."
-read -rp "Enter Wings node name (used as comment): " NODE_NAME
+echo "[5/6] Creating Cloudflare DNS records..."
+SERVER_IP=$(curl -s ipinfo.io/ip)
 
-# Determine node number
-N=1
-while curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records?name=node-$N.$CF_DOMAIN" \
-  -H "Authorization: Bearer $CF_API" -H "Content-Type: application/json" | grep -q "\"result\":\[\]"; do
-  break
+# Find first available node number
+NUM=1
+while true; do
+    node_check=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/${CF_ZONE}/dns_records?name=node-${NUM}.${CF_DOMAIN}" \
+        -H "Authorization: Bearer ${CF_API}" \
+        -H "Content-Type: application/json" | jq '.result | length')
+    if [[ $node_check -eq 0 ]]; then
+        break
+    fi
+    NUM=$((NUM+1))
 done
-NODE_NUM=$N
-CF_NODE_NAME="node-$NODE_NUM.$CF_DOMAIN"
-CF_GAME_NAME="game-$NODE_NUM.$CF_DOMAIN"
+
+CF_NODE_NAME="node-${NUM}.${CF_DOMAIN}"
+CF_GAME_NAME="game-${NUM}.${CF_DOMAIN}"
 
 # Create DNS records
-curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records" \
--H "Authorization: Bearer $CF_API" \
--H "Content-Type: application/json" \
---data "{\"type\":\"A\",\"name\":\"$CF_NODE_NAME\",\"content\":\"$(curl -s https://ipinfo.io/ip)\",\"ttl\":120,\"proxied\":false}" >/dev/null
+curl -s -X POST "https://api.cloudflare.com/client/v4/zones/${CF_ZONE}/dns_records" \
+    -H "Authorization: Bearer ${CF_API}" \
+    -H "Content-Type: application/json" \
+    --data "{\"type\":\"A\",\"name\":\"$CF_NODE_NAME\",\"content\":\"$SERVER_IP\",\"ttl\":1,\"proxied\":true,\"comment\":\"$NODE_NAME\"}"
 
-curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records" \
--H "Authorization: Bearer $CF_API" \
--H "Content-Type: application/json" \
---data "{\"type\":\"A\",\"name\":\"$CF_GAME_NAME\",\"content\":\"$(curl -s https://ipinfo.io/ip)\",\"ttl\":120,\"proxied\":false}" >/dev/null
-
-# --------------------------
-# Step 6: SSL Certificate
-# --------------------------
-echo "[6/6] Installing SSL for $CF_NODE_NAME..."
-sudo apt update
-sudo apt install -y certbot
-sudo certbot certonly --nginx -d "$CF_NODE_NAME" --non-interactive --agree-tos -m "admin@$CF_DOMAIN"
-# Setup renewal cron
-sudo bash -c "echo '0 23 * * * certbot renew --quiet --deploy-hook \"systemctl restart nginx\"' >> /etc/crontab"
+curl -s -X POST "https://api.cloudflare.com/client/v4/zones/${CF_ZONE}/dns_records" \
+    -H "Authorization: Bearer ${CF_API}" \
+    -H "Content-Type: application/json" \
+    --data "{\"type\":\"A\",\"name\":\"$CF_GAME_NAME\",\"content\":\"$SERVER_IP\",\"ttl\":1,\"proxied\":true,\"comment\":\"$NODE_NAME\"}"
 
 # --------------------------
-# Final Summary
+# Step 6: Final summary
 # --------------------------
-SERVER_IP=$(curl -s https://ipinfo.io/ip)
-TOTAL_RAM_MB=$(free -m | awk '/^Mem:/{print $2}')
-ALLOC_RAM_MB=$((TOTAL_RAM_MB - 1024))
-TOTAL_DISK_MB=$(df -m / | awk 'NR==2{print $2}')
+TOTAL_RAM_MB=$(free -m | awk '/^Mem:/ {print $2}')
+ALLOC_RAM_MB=$((TOTAL_RAM_MB - 500))
+TOTAL_DISK_MB=$(df -m / | awk 'NR==2 {print $2}')
 ALLOC_DISK_MB=$((TOTAL_DISK_MB - 5000))
 LOCATION=$(curl -s https://ipinfo.io/$SERVER_IP | jq -r '.city + ", " + .country')
 
@@ -139,6 +142,7 @@ echo
 echo "=============================================="
 echo "✅ Wings Node Setup Complete!"
 echo "Details for adding this node in the Pterodactyl Panel:"
+echo
 echo "  Node Name   : $NODE_NAME"
 echo "  Wings FQDN  : $CF_NODE_NAME"
 echo "  Game FQDN   : $CF_GAME_NAME"
