@@ -140,15 +140,10 @@ create_dns "$CF_GAME_NAME" "$NODE_NAME game ip"
 
 # ---------------- SSL ----------------
 echo "[6/7] Installing SSL..."
-sudo apt update
-sudo apt install -y certbot python3-certbot-nginx
+sudo apt install -y certbot
+certbot certonly --standalone -d "$CF_NODE_NAME"
 
-# Run certbot but don’t exit script if it fails
-if ! sudo certbot certonly --nginx -d "$CF_NODE_NAME"; then
-    echo "⚠️ SSL setup failed. Make sure nginx is running or the domain resolves correctly."
-fi
-
-# Add cron for auto-renewal
+# Add cron for renewal
 (crontab -l 2>/dev/null; echo "0 23 * * * certbot renew --quiet --deploy-hook 'systemctl restart nginx'") | crontab -
 
 # ---------------- Final Summary ----------------
