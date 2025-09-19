@@ -1,5 +1,4 @@
 #!/bin/bash
-
 set -e
 
 # ==============================
@@ -58,7 +57,8 @@ fi
 # System update
 # ==============================
 print_step "Updating system packages..."
-apt update && apt upgrade -y
+DEBIAN_FRONTEND=noninteractive apt-get -y -qq update
+DEBIAN_FRONTEND=noninteractive apt-get -y -qq upgrade
 
 # ==============================
 # Install Docker
@@ -119,30 +119,30 @@ systemctl enable --now wings
 # Firewalld setup
 # ==============================
 print_step "Installing and configuring firewalld..."
-apt install -y firewalld
-ufw disable || true
-systemctl stop ufw || true
-systemctl disable ufw || true
+DEBIAN_FRONTEND=noninteractive apt-get -y -qq install firewalld
 
-systemctl enable --now firewalld
+ufw disable >/dev/null 2>&1 || true
+systemctl stop ufw >/dev/null 2>&1 || true
+systemctl disable ufw >/dev/null 2>&1 || true
+
+systemctl enable --now firewalld >/dev/null 2>&1
 
 # TCP Ports
-firewall-cmd --permanent --add-port=2022/tcp
-firewall-cmd --permanent --add-port=5657/tcp
-firewall-cmd --permanent --add-port=56423/tcp
-firewall-cmd --permanent --add-port=8080/tcp
-firewall-cmd --permanent --add-port=25565-25800/tcp
-firewall-cmd --permanent --add-port=50000-50500/tcp
-firewall-cmd --permanent --add-port=19132/tcp
+firewall-cmd --permanent --add-port=2022/tcp >/dev/null
+firewall-cmd --permanent --add-port=5657/tcp >/dev/null
+firewall-cmd --permanent --add-port=56423/tcp >/dev/null
+firewall-cmd --permanent --add-port=8080/tcp >/dev/null
+firewall-cmd --permanent --add-port=25565-25800/tcp >/dev/null
+firewall-cmd --permanent --add-port=50000-50500/tcp >/dev/null
+firewall-cmd --permanent --add-port=19132/tcp >/dev/null
 
 # UDP Ports
-firewall-cmd --permanent --add-port=8080/udp
-firewall-cmd --permanent --add-port=25565-25800/udp
-firewall-cmd --permanent --add-port=50000-50500/udp
-firewall-cmd --permanent --add-port=19132/udp
+firewall-cmd --permanent --add-port=8080/udp >/dev/null
+firewall-cmd --permanent --add-port=25565-25800/udp >/dev/null
+firewall-cmd --permanent --add-port=50000-50500/udp >/dev/null
+firewall-cmd --permanent --add-port=19132/udp >/dev/null
 
-firewall-cmd --reload
-
+firewall-cmd --reload >/dev/null
 echo "✅ Firewalld setup complete!"
 
 # ==============================
@@ -189,17 +189,21 @@ fi
 # ==============================
 print_step "System resource info for panel setup..."
 
+# RAM in MB (subtract 2048 MB)
 TOTAL_RAM=$(grep MemTotal /proc/meminfo | awk '{print $2}')
-ALLOC_RAM=$((TOTAL_RAM - 2000000))   # remove ~2GB
+TOTAL_RAM_MB=$((TOTAL_RAM / 1024))
+ALLOC_RAM=$((TOTAL_RAM_MB - 2048))
+
+# Disk in MB (subtract 51200 MB = 50GB)
 ALLOC_DISK=$(df --output=avail -m / | tail -1)
-ALLOC_DISK=$((ALLOC_DISK - 51200))  # remove 50GB
+ALLOC_DISK=$((ALLOC_DISK - 51200))
 
 echo "RAM available for nodes: ${ALLOC_RAM} MB"
 echo "Disk available for nodes: ${ALLOC_DISK} MB"
 
-# Show IPs
+# Show only non-docker, non-loopback IPs
 echo "IP addresses:"
-ip -o -4 addr show | awk '{print $2 ": " $4}'
+ip -o -4 addr show | awk '!/docker0/ && !/lo/ {print $2 ": " $4}'
 
 echo
 echo "✅ Wings installation complete!"
