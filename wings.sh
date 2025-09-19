@@ -82,13 +82,20 @@ sudo apt install -y firewalld
 sudo systemctl stop ufw || true
 sudo systemctl disable ufw || true
 sudo systemctl enable --now firewalld
-sudo firewall-cmd --zone=public --add-interface=ens18 --permanent
-sudo firewall-cmd --reload
 
 # External interface name - change if needed
 EXT_IFACE="ens18"
 
-# Ports to allow in Docker zone
+# Assign external interface to public zone if not already assigned
+EXT_ZONE=$(firewall-cmd --get-zone-of-interface=$EXT_IFACE 2>/dev/null || echo "")
+if [[ -z "$EXT_ZONE" ]]; then
+  echo "[4/7] Assigning external interface $EXT_IFACE to public zone..."
+  sudo firewall-cmd --zone=public --add-interface=$EXT_IFACE --permanent
+else
+  echo "[4/7] External interface $EXT_IFACE is already in zone: $EXT_ZONE"
+fi
+
+# Ports to allow in Docker zone (docker0 and pterodactyl0 bridges are automatically managed by Docker in the 'docker' zone)
 DOCKER_TCP_PORTS="2022 5657 56423 8080 25565-25800 19132 50000-50500"
 DOCKER_UDP_PORTS="8080 25565-25800 19132 50000-50500"
 
@@ -96,13 +103,7 @@ DOCKER_UDP_PORTS="8080 25565-25800 19132 50000-50500"
 EXTERNAL_TCP_PORTS="2022 5657 56423 8080 25565-25800 19132 50000-50500"
 EXTERNAL_UDP_PORTS="8080 25565-25800 19132 50000-50500"
 
-echo "[1/4] Getting active zones and interfaces..."
-ACTIVE_ZONES=$(firewall-cmd --get-active-zones)
-
-echo "$ACTIVE_ZONES"
-
-# Open ports in docker zone
-echo "[2/4] Opening ports in docker zone..."
+echo "[4/7] Opening ports in docker zone..."
 for port in $DOCKER_TCP_PORTS; do
   sudo firewall-cmd --zone=docker --add-port=${port}/tcp --permanent
 done
@@ -110,38 +111,24 @@ for port in $DOCKER_UDP_PORTS; do
   sudo firewall-cmd --zone=docker --add-port=${port}/udp --permanent
 done
 
-# Check if external interface is already assigned to a zone
-EXT_ZONE=$(firewall-cmd --get-zone-of-interface=$EXT_IFACE 2>/dev/null)
-if [[ -z "$EXT_ZONE" ]]; then
-  echo "[3/4] Assigning external interface $EXT_IFACE to public zone..."
-  sudo firewall-cmd --zone=public --add-interface=$EXT_IFACE --permanent
-else
-  echo "[3/4] External interface $EXT_IFACE is already in zone: $EXT_ZONE"
-fi
-
-# Open ports on external interface zone
-if [[ -n "$EXTERNAL_TCP_PORTS" ]]; then
-  for port in $EXTERNAL_TCP_PORTS; do
-    sudo firewall-cmd --zone=public --add-port=${port}/tcp --permanent
-  done
-fi
-if [[ -n "$EXTERNAL_UDP_PORTS" ]]; then
-  for port in $EXTERNAL_UDP_PORTS; do
-    sudo firewall-cmd --zone=public --add-port=${port}/udp --permanent
-  done
-fi
+echo "[4/7] Opening ports in public zone (external interface $EXT_IFACE)..."
+for port in $EXTERNAL_TCP_PORTS; do
+  sudo firewall-cmd --zone=public --add-port=${port}/tcp --permanent
+done
+for port in $EXTERNAL_UDP_PORTS; do
+  sudo firewall-cmd --zone=public --add-port=${port}/udp --permanent
+done
 
 # Reload firewall to apply changes
-echo "[4/4] Reloading firewalld..."
 sudo firewall-cmd --reload
 
-echo "✅ Ports opened in firewalld zones."
-echo "Docker zone ports opened: TCP($DOCKER_TCP_PORTS), UDP($DOCKER_UDP_PORTS)"
-echo "External interface ($EXT_IFACE) assigned to zone: $(firewall-cmd --get-zone-of-interface=$EXT_IFACE)"
-sudo firewall-cmd --reload
 echo "✅ Firewalld setup complete!"
-echo "Allowed TCP: 2022, 5657, 56423, 8080, 25565-25800, 19132, 50000-50500"
-echo "Allowed UDP: 8080, 25565-25800, 19132, 50000-50500"
+echo "Allowed TCP ports on docker zone: $DOCKER_TCP_PORTS"
+echo "Allowed UDP ports on docker zone: $DOCKER_UDP_PORTS"
+echo "Allowed TCP ports on public zone: $EXTERNAL_TCP_PORTS"
+echo "Allowed UDP ports on public zone: $EXTERNAL_UDP_PORTS"
+echo "External interface $EXT_IFACE assigned to zone: $(firewall-cmd --get-zone-of-interface=$EXT_IFACE)"
+
 
 # ---------------- Cloudflare DNS ----------------
 echo "[5/7] Creating Cloudflare DNS records..."
