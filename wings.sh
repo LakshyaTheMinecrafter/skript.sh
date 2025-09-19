@@ -1,10 +1,31 @@
 #!/bin/bash
 set -e
 
-### CONFIGURATION ###
-CLOUDFLARE_API_TOKEN="YOUR_API_TOKEN"
-CLOUDFLARE_ZONE_ID="YOUR_ZONE_ID"
-DOMAIN="yourdomain.com"
+### CONFIGURATION STORAGE ###
+CONFIG_DIR="/root/cloudflare_env"
+CONFIG_FILE="$CONFIG_DIR/.env"
+
+# Load or ask for Cloudflare config
+if [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+    echo "ℹ️ Loaded Cloudflare config from $CONFIG_FILE"
+else
+    echo "Enter your Cloudflare API Token: "
+    read CLOUDFLARE_API_TOKEN
+    echo "Enter your Cloudflare Zone ID: "
+    read CLOUDFLARE_ZONE_ID
+    echo "Enter your domain (example.com): "
+    read DOMAIN
+
+    mkdir -p "$CONFIG_DIR"
+    cat >"$CONFIG_FILE" <<EOL
+CLOUDFLARE_API_TOKEN=$CLOUDFLARE_API_TOKEN
+CLOUDFLARE_ZONE_ID=$CLOUDFLARE_ZONE_ID
+DOMAIN=$DOMAIN
+DNS_CREATED=false
+EOL
+    echo "✅ Saved Cloudflare config to $CONFIG_FILE"
+fi
 
 ### FUNCTIONS ###
 get_next_subdomain() {
@@ -122,10 +143,20 @@ firewall-cmd --reload
 
 echo "[7/8] Creating DNS records on Cloudflare..."
 IP=$(curl -s ifconfig.me)
-SUBDOMAIN=$(get_next_subdomain "node")
-GAMESUBDOMAIN=$(echo "$SUBDOMAIN" | sed 's/node/game/')
-create_dns_record "$SUBDOMAIN" "$IP" "$NODE_NAME"
-create_dns_record "$GAMESUBDOMAIN" "$IP" "$NODE_NAME game ip"
+if [ "$DNS_CREATED" != "true" ]; then
+    SUBDOMAIN=$(get_next_subdomain "node")
+    GAMESUBDOMAIN=$(echo "$SUBDOMAIN" | sed 's/node/game/')
+    create_dns_record "$SUBDOMAIN" "$IP" "$NODE_NAME"
+    create_dns_record "$GAMESUBDOMAIN" "$IP" "$NODE_NAME game ip"
+
+    # Update .env so DNS isn’t recreated next time
+    sed -i 's/DNS_CREATED=false/DNS_CREATED=true/' "$CONFIG_FILE"
+    echo "✅ DNS records created."
+else
+    echo "ℹ️ DNS already created. Skipping..."
+    SUBDOMAIN=$(get_next_subdomain "node") # still set for output
+    GAMESUBDOMAIN=$(echo "$SUBDOMAIN" | sed 's/node/game/')
+fi
 
 FQDN="${SUBDOMAIN}.${DOMAIN}"
 GAMEFQDN="${GAMESUBDOMAIN}.${DOMAIN}"
