@@ -2,7 +2,7 @@
 set -e
 
 # ==============================
-# Spinner function
+# Spinner and step helpers
 # ==============================
 spinner() {
     local pid=$1
@@ -11,11 +11,16 @@ spinner() {
     while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
         local temp=${spinstr#?}
         printf " [%c]  " "$spinstr"
-        local spinstr=$temp${spinstr%"$temp"}
+        spinstr=$temp${spinstr%"$temp"}
         sleep $delay
         printf "\b\b\b\b\b\b"
     done
     printf "      \b\b\b\b\b\b"
+}
+
+print_step() {
+    echo
+    echo "[*] $1"
 }
 
 run_step() {
@@ -30,7 +35,7 @@ run_step() {
 }
 
 # ==============================
-# Helper functions
+# Environment save/load
 # ==============================
 save_env() {
     mkdir -p /root/cloudflare_env
@@ -159,7 +164,7 @@ echo "✅ Firewalld setup complete!"
 # ==============================
 # Step 7: Cloudflare DNS Setup
 # ==============================
-print_step "Setting up Cloudflare DNS records..."
+run_step "Setting up Cloudflare DNS records..." bash -c '
 SERVER_IP=$(curl -s http://ipv4.icanhazip.com)
 
 if [[ "$DNS_CREATED" != "true" ]]; then
@@ -189,8 +194,8 @@ if [[ "$DNS_CREATED" != "true" ]]; then
     DNS_CREATED=true
 fi
 
-# Always save env (even if DNS already existed)
 save_env
+'
 
 # ==============================
 # Step 8: Resource info
