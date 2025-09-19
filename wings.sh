@@ -89,12 +89,13 @@ echo "  TCP: 2022, 5657, 56423, 8080, 25565-25800, 19132, 50000-50500"
 echo "  UDP: 8080, 25565-25800, 19132, 50000-50500"
 
 # -------------------- Cloudflare DNS --------------------
-echo "[5/6] Creating Cloudflare DNS records..."
+echo "[5/7] Creating Cloudflare DNS records..."
 
 NEXT_NODE=1
 while true; do
     NODE_CHECK=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records?type=A&name=node-$NEXT_NODE.$CF_DOMAIN" \
-        -H "Authorization: Bearer $CF_API" -H "Content-Type: application/json" | grep -o "\"id\":")
+        -H "Authorization: Bearer $CF_API" \
+        -H "Content-Type: application/json" | grep -o '"id":')
     if [[ -z "$NODE_CHECK" ]]; then
         break
     else
@@ -105,15 +106,18 @@ done
 CF_NODE_NAME="node-$NEXT_NODE.$CF_DOMAIN"
 CF_GAME_NAME="game-$NEXT_NODE.$CF_DOMAIN"
 
+# Create node A record
 curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records" \
      -H "Authorization: Bearer $CF_API" \
      -H "Content-Type: application/json" \
      --data '{"type":"A","name":"'"$CF_NODE_NAME"'","content":"'"$SERVER_IP"'","ttl":120,"comment":"'"$NODE_NAME"'"}'
 
+# Create game A record
 curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records" \
      -H "Authorization: Bearer $CF_API" \
      -H "Content-Type: application/json" \
      --data '{"type":"A","name":"'"$CF_GAME_NAME"'","content":"'"$SERVER_IP"'","ttl":120,"comment":"'"$NODE_NAME"' game ip"}'
+
 
 # -------------------- SSL --------------------
 echo "[6/6] Installing SSL..."
