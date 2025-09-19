@@ -77,7 +77,7 @@ sudo systemctl disable ufw || true
 sudo systemctl enable --now firewalld
 
 # TCP ports
-for port in 2022 5657 56423 8080 25565-25800 50000-50500 19132; do
+for port in 80 2022 5657 56423 8080 25565-25800 50000-50500 19132; do
     sudo firewall-cmd --permanent --add-port=$port/tcp
 done
 # UDP ports
