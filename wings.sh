@@ -1,156 +1,158 @@
 #!/bin/bash
 set -e
 
-# =============== ARGUMENTS ===============
+# ==============================
+# Configurable arguments
+# ==============================
 while [[ "$#" -gt 0 ]]; do
   case $1 in
-    --api) CF_API="$2"; shift ;;
-    --zone) CF_ZONE="$2"; shift ;;
-    --domain) CF_DOMAIN="$2"; shift ;;
+    --api) CF_API=$2; shift ;;
+    --zone) CF_ZONE=$2; shift ;;
+    --domain) CF_DOMAIN=$2; shift ;;
     *) echo "Unknown parameter: $1"; exit 1 ;;
   esac
   shift
 done
 
-# Make sure required arguments are set
 if [[ -z "$CF_API" || -z "$CF_ZONE" || -z "$CF_DOMAIN" ]]; then
-  echo "Usage: bash <(curl -s https://raw.githubusercontent.com/USERNAME/REPO/main/wings.sh) --api <API_TOKEN> --zone <ZONE_ID> --domain <DOMAIN>"
+  echo "Usage: $0 --api <cloudflare_api> --zone <zone_id> --domain <domain>"
   exit 1
 fi
 
-mkdir -p /root/cloudflare_env
-ENV_FILE="/root/cloudflare_env/.env"
-
-# Load old env if exists
-if [[ -f "$ENV_FILE" ]]; then
-  source "$ENV_FILE"
-fi
-
-# =============== SYSTEM SETUP ===============
-echo "[*] Installing required packages..."
-apt update -y
-apt install -y curl wget sudo jq firewalld
+# ==============================
+# Update system and install Docker
+# ==============================
+echo "[*] Updating system packages..."
+apt update && apt upgrade -y
 
 echo "[*] Installing Docker..."
 curl -fsSL https://get.docker.com | sh
 systemctl enable --now docker
 
-# =============== SWAP ACCOUNTING ===============
-echo
+# ==============================
+# Enable swap accounting (if GRUB exists)
+# ==============================
 echo "[*] Enabling swap accounting..."
-if grep -q "GRUB_CMDLINE_LINUX" /etc/default/grub; then
-  sed -i 's/GRUB_CMDLINE_LINUX="/GRUB_CMDLINE_LINUX="swapaccount=1 /' /etc/default/grub
-  update-grub || true
+if [[ -f "/etc/default/grub" ]]; then
+  sed -i 's/GRUB_CMDLINE_LINUX="[^"]*/& swapaccount=1/' /etc/default/grub
+  update-grub
 else
   echo "No GRUB found, skipping swapaccount step."
 fi
 
-# =============== INSTALL WINGS ===============
-echo
+# ==============================
+# Install Wings
+# ==============================
 echo "[*] Installing Pterodactyl Wings..."
 mkdir -p /etc/pterodactyl
-cd /etc/pterodactyl
-curl -L -o wings.tar.gz https://github.com/pterodactyl/wings/releases/latest/download/wings_linux_amd64
-tar -xvzf wings.tar.gz -C /usr/local/bin
+curl -L -o /usr/local/bin/wings \
+  "https://github.com/pterodactyl/wings/releases/latest/download/wings_linux_$([[ \"$(uname -m)\" == \"x86_64\" ]] && echo \"amd64\" || echo \"arm64\")"
 chmod +x /usr/local/bin/wings
 
+# Create systemd service
 echo "[*] Creating systemd service for Wings..."
-cat > /etc/systemd/system/wings.service <<EOF
+cat >/etc/systemd/system/wings.service <<EOL
 [Unit]
 Description=Pterodactyl Wings Daemon
 After=docker.service
 Requires=docker.service
+PartOf=docker.service
 
 [Service]
 User=root
 WorkingDirectory=/etc/pterodactyl
 LimitNOFILE=4096
-PIDFile=/var/run/wings.pid
+PIDFile=/var/run/wings/daemon.pid
 ExecStart=/usr/local/bin/wings
 Restart=on-failure
 StartLimitInterval=180
+StartLimitBurst=30
+RestartSec=5s
 
 [Install]
 WantedBy=multi-user.target
-EOF
+EOL
 
-systemctl enable wings
+systemctl enable --now wings
 
-# =============== FIREWALLD SETUP ===============
-echo
+# ==============================
+# Install firewalld + configure rules
+# ==============================
 echo "[*] Installing and configuring firewalld..."
+apt install -y firewalld
 systemctl enable --now firewalld
 
-# Disable ufw if exists
+# Disable ufw if present
 ufw disable || true
 systemctl stop ufw || true
 systemctl disable ufw || true
 
-# Open required ports
-firewall-cmd --permanent --add-port=2022/tcp || true
-firewall-cmd --permanent --add-port=5657/tcp || true
-firewall-cmd --permanent --add-port=56423/tcp || true
-firewall-cmd --permanent --add-port=8080/tcp || true
-firewall-cmd --permanent --add-port=25565-25800/tcp || true
-firewall-cmd --permanent --add-port=50000-50500/tcp || true
-firewall-cmd --permanent --add-port=19132/tcp || true
-firewall-cmd --permanent --add-port=8080/udp || true
-firewall-cmd --permanent --add-port=25565-25800/udp || true
-firewall-cmd --permanent --add-port=50000-50500/udp || true
-firewall-cmd --permanent --add-port=19132/udp || true
+# TCP ports
+firewall-cmd --permanent --add-port=2022/tcp
+firewall-cmd --permanent --add-port=5657/tcp
+firewall-cmd --permanent --add-port=56423/tcp
+firewall-cmd --permanent --add-port=8080/tcp
+firewall-cmd --permanent --add-port=25565-25800/tcp
+firewall-cmd --permanent --add-port=50000-50500/tcp
+firewall-cmd --permanent --add-port=19132/tcp
+
+# UDP ports
+firewall-cmd --permanent --add-port=8080/udp
+firewall-cmd --permanent --add-port=25565-25800/udp
+firewall-cmd --permanent --add-port=50000-50500/udp
+firewall-cmd --permanent --add-port=19132/udp
+
 firewall-cmd --reload
 echo "✅ Firewalld setup complete!"
 
-# =============== CLOUDFLARE DNS ===============
-if [[ "$DNS_CREATED" != "true" ]]; then
-  echo
-  echo "[*] Setting up Cloudflare DNS records..."
-  read -p "Enter a name for this Wings node (used for comments): " NODE_NAME
+# ==============================
+# Setup Cloudflare DNS records
+# ==============================
+echo "[*] Setting up Cloudflare DNS records..."
+read -p "Enter a name for this Wings node (used for comments): " NODE_NAME
 
-  NODE_NUM=$((RANDOM % 1000))
-  CF_NODE_NAME="node-$NODE_NUM.$CF_DOMAIN"
-  CF_GAME_NAME="game-$NODE_NUM.$CF_DOMAIN"
-  SERVER_IP=$(curl -s https://ipinfo.io/ip)
+SERVER_IP=$(curl -s ifconfig.me)
+DNS_BASE="node"
+GAME_BASE="game"
 
-  # Create DNS records
-  curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records" \
-    -H "Authorization: Bearer $CF_API" -H "Content-Type: application/json" \
-    --data "{\"type\":\"A\",\"name\":\"$CF_NODE_NAME\",\"content\":\"$SERVER_IP\",\"ttl\":120,\"proxied\":false,\"comment\":\"$NODE_NAME wings ip\"}" >/dev/null
+# Find next available number
+for i in $(seq 1 50); do
+  if ! curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records?name=${DNS_BASE}-${i}.${CF_DOMAIN}" \
+    -H "Authorization: Bearer $CF_API" -H "Content-Type: application/json" | grep -q '"count":1'; then
+    NODE_NUM=$i
+    break
+  fi
+done
 
-  curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records" \
-    -H "Authorization: Bearer $CF_API" -H "Content-Type: application/json" \
-    --data "{\"type\":\"A\",\"name\":\"$CF_GAME_NAME\",\"content\":\"$SERVER_IP\",\"ttl\":120,\"proxied\":false,\"comment\":\"$NODE_NAME game ip\"}" >/dev/null
+CF_NODE_NAME="${DNS_BASE}-${NODE_NUM}.${CF_DOMAIN}"
+CF_GAME_NAME="${GAME_BASE}-${NODE_NUM}.${CF_DOMAIN}"
 
-  echo "✅ DNS records created:"
-  echo " - $CF_NODE_NAME"
-  echo " - $CF_GAME_NAME"
+# Create Wings DNS
+curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records" \
+  -H "Authorization: Bearer $CF_API" -H "Content-Type: application/json" \
+  --data "{\"type\":\"A\",\"name\":\"${CF_NODE_NAME}\",\"content\":\"${SERVER_IP}\",\"ttl\":120,\"proxied\":false,\"comment\":\"$NODE_NAME Wings FQDN\"}" >/dev/null
 
-  DNS_CREATED=true
-  # Save to env
-  cat > "$ENV_FILE" <<EOF
-CF_API=$CF_API
-CF_ZONE=$CF_ZONE
-CF_DOMAIN=$CF_DOMAIN
-NODE_NAME="$NODE_NAME"
-CF_NODE_NAME=$CF_NODE_NAME
-CF_GAME_NAME=$CF_GAME_NAME
-DNS_CREATED=true
-EOF
-else
-  echo "✅ DNS already created, skipping..."
-fi
+# Create Game DNS
+curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records" \
+  -H "Authorization: Bearer $CF_API" -H "Content-Type: application/json" \
+  --data "{\"type\":\"A\",\"name\":\"${CF_GAME_NAME}\",\"content\":\"${SERVER_IP}\",\"ttl\":120,\"proxied\":false,\"comment\":\"$NODE_NAME Game IP\"}" >/dev/null
 
-# Reload env so summary always has values
-source "$ENV_FILE"
+echo "✅ DNS records created:"
+echo " - $CF_NODE_NAME"
+echo " - $CF_GAME_NAME"
 
-# =============== SYSTEM INFO ===============
-TOTAL_RAM_MB=$(free -m | awk '/^Mem:/{print $2}')
-ALLOC_RAM_MB=$((TOTAL_RAM_MB - (TOTAL_RAM_MB / 10)))
-TOTAL_DISK_MB=$(df --output=size -m / | tail -1 | xargs)
-ALLOC_DISK_MB=$((TOTAL_DISK_MB - (TOTAL_DISK_MB / 10)))
-SERVER_IP=$(curl -s https://ipinfo.io/ip)
+# ==============================
+# System resources for panel setup
+# ==============================
+TOTAL_RAM_MB=$(free -m | awk '/Mem:/ {print $2}')
+ALLOC_RAM_MB=$((TOTAL_RAM_MB - 2048))
 
-# =============== SUMMARY ===============
+TOTAL_DISK_MB=$(df --output=size -m / | tail -1)
+ALLOC_DISK_MB=$((TOTAL_DISK_MB - 51200))
+
+# ==============================
+# Final Summary
+# ==============================
 echo
 echo "=============================================="
 echo "✅ Wings Node Setup Complete!"
