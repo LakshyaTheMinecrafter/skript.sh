@@ -2,13 +2,36 @@
 set -e
 
 # ==============================
-# Helper functions
+# Spinner function
 # ==============================
-print_step() {
-    echo
-    echo "[*] $1"
+spinner() {
+    local pid=$1
+    local delay=0.1
+    local spinstr='|/-\'
+    while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
+        local temp=${spinstr#?}
+        printf " [%c]  " "$spinstr"
+        local spinstr=$temp${spinstr%"$temp"}
+        sleep $delay
+        printf "\b\b\b\b\b\b"
+    done
+    printf "      \b\b\b\b\b\b"
 }
 
+run_step() {
+    local msg="$1"
+    shift
+    echo
+    echo "[*] $msg"
+    "$@" &
+    local pid=$!
+    spinner $pid
+    wait $pid
+}
+
+# ==============================
+# Helper functions
+# ==============================
 save_env() {
     mkdir -p /root/cloudflare_env
     cat > /root/cloudflare_env/.env <<EOF
@@ -40,9 +63,7 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
-# ==============================
-# Load existing env if present
-# ==============================
+# Load previous env if exists
 load_env
 
 # Ask interactively if not set
@@ -59,43 +80,40 @@ fi
 # ==============================
 # Step 1: Update system
 # ==============================
-print_step "[1/8] Updating system packages..."
-DEBIAN_FRONTEND=noninteractive apt-get -y -qq update
-DEBIAN_FRONTEND=noninteractive apt-get -y -qq upgrade
+run_step "Updating system packages..." bash -c "DEBIAN_FRONTEND=noninteractive apt-get -y -qq update && DEBIAN_FRONTEND=noninteractive apt-get -y -qq upgrade"
 
 # ==============================
 # Step 2: Install Docker
 # ==============================
-print_step "[2/8] Installing Docker..."
-curl -sSL https://get.docker.com/ | CHANNEL=stable bash
-systemctl enable --now docker
+run_step "Installing Docker..." bash -c "curl -sSL https://get.docker.com/ | CHANNEL=stable bash && systemctl enable --now docker"
 
 # ==============================
 # Step 3: Enable swapaccount if GRUB exists
 # ==============================
-print_step "[3/8] Enabling swap accounting..."
+run_step "Enabling swap accounting..." bash -c '
 if [[ -f /etc/default/grub ]]; then
-    sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="[^"]*"/GRUB_CMDLINE_LINUX_DEFAULT="swapaccount=1"/' /etc/default/grub
+    sed -i "s/GRUB_CMDLINE_LINUX_DEFAULT=\"[^\"]*\"/GRUB_CMDLINE_LINUX_DEFAULT=\"swapaccount=1\"/" /etc/default/grub
     update-grub || true
 else
     echo "No GRUB found, skipping swapaccount step."
 fi
+'
 
 # ==============================
 # Step 4: Install Wings
 # ==============================
-print_step "[4/8] Installing Pterodactyl Wings..."
+run_step "Installing Pterodactyl Wings..." bash -c '
 mkdir -p /etc/pterodactyl
-curl -L -o /usr/local/bin/wings \
-  "https://github.com/pterodactyl/wings/releases/latest/download/wings_linux_$([[ "$(uname -m)" == "x86_64" ]] && echo "amd64" || echo "arm64")" \
-  --progress-bar
+WINGS_URL="https://github.com/pterodactyl/wings/releases/latest/download/wings_linux_$([[ \"$(uname -m)\" == \"x86_64\" ]] && echo \"amd64\" || echo \"arm64\")"
+curl -L "$WINGS_URL" -o /usr/local/bin/wings --progress-bar
 chmod u+x /usr/local/bin/wings
+'
 
 # ==============================
 # Step 5: Create systemd service
 # ==============================
-print_step "[5/8] Creating systemd service for Wings..."
-cat > /etc/systemd/system/wings.service <<'EOF'
+run_step "Creating systemd service for Wings..." bash -c '
+cat > /etc/systemd/system/wings.service <<EOF
 [Unit]
 Description=Pterodactyl Wings Daemon
 After=docker.service
@@ -116,19 +134,17 @@ RestartSec=5s
 [Install]
 WantedBy=multi-user.target
 EOF
-
 systemctl enable --now wings
+'
 
 # ==============================
 # Step 6: Firewalld setup
 # ==============================
-print_step "[6/8] Installing and configuring firewalld..."
+run_step "Installing and configuring firewalld..." bash -c '
 DEBIAN_FRONTEND=noninteractive apt-get -y install firewalld >/dev/null 2>&1 || true
-
 ufw disable >/dev/null 2>&1 || true
 systemctl stop ufw >/dev/null 2>&1 || true
 systemctl disable ufw >/dev/null 2>&1 || true
-
 systemctl enable --now firewalld >/dev/null 2>&1
 
 ports=(2022 5657 56423 8080 25565-25800 50000-50500 19132)
@@ -138,17 +154,17 @@ for p in "${ports[@]}"; do
 done
 firewall-cmd --reload >/dev/null
 echo "✅ Firewalld setup complete!"
+'
 
 # ==============================
 # Step 7: Cloudflare DNS Setup
 # ==============================
-print_step "[7/8] Setting up Cloudflare DNS records..."
+print_step "Setting up Cloudflare DNS records..."
 SERVER_IP=$(curl -s http://ipv4.icanhazip.com)
 
 if [[ "$DNS_CREATED" != "true" ]]; then
     read -p "Enter a name for this Wings node (used for comments): " NODE_NAME
 
-    # Find next available node number
     i=1
     while curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records?type=A&name=node-$i.$CF_DOMAIN" \
         -H "Authorization: Bearer $CF_API" -H "Content-Type: application/json" | grep -q "\"count\":1"; do
@@ -158,7 +174,6 @@ if [[ "$DNS_CREATED" != "true" ]]; then
     CF_NODE_NAME="node-$i.$CF_DOMAIN"
     CF_GAME_NAME="game-$i.$CF_DOMAIN"
 
-    # Create node and game records
     curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records" \
         -H "Authorization: Bearer $CF_API" -H "Content-Type: application/json" \
         --data "{\"type\":\"A\",\"name\":\"$CF_NODE_NAME\",\"content\":\"$SERVER_IP\",\"ttl\":120,\"proxied\":false,\"comment\":\"$NODE_NAME\"}" >/dev/null
@@ -172,26 +187,27 @@ if [[ "$DNS_CREATED" != "true" ]]; then
     echo " - $CF_GAME_NAME"
 
     DNS_CREATED=true
-    save_env
-else
-    echo "✅ DNS already created, loading previous info..."
-    load_env
-    : "${NODE_NAME:="Unknown Node"}"
-    : "${CF_NODE_NAME:="node.$CF_DOMAIN"}"
-    : "${CF_GAME_NAME:="game.$CF_DOMAIN"}"
 fi
+
+# Always save env (even if DNS already existed)
+save_env
 
 # ==============================
 # Step 8: Resource info
 # ==============================
-print_step "[8/8] Gathering system resource info..."
-
-TOTAL_RAM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+run_step "Gathering system resource info..." bash -c '
+TOTAL_RAM_KB=$(grep MemTotal /proc/meminfo | awk "{print \$2}")
 TOTAL_RAM_MB=$((TOTAL_RAM_KB / 1024))
 ALLOC_RAM_MB=$((TOTAL_RAM_MB - 2048))
 
 TOTAL_DISK_MB=$(df --output=avail -m / | tail -1)
 ALLOC_DISK_MB=$((TOTAL_DISK_MB - 51200))
+'
+
+# Ensure node info is set for final summary
+: "${NODE_NAME:="Unknown Node"}"
+: "${CF_NODE_NAME:="node.$CF_DOMAIN"}"
+: "${CF_GAME_NAME:="game.$CF_DOMAIN"}"
 
 # ==============================
 # Final summary including IP aliases
