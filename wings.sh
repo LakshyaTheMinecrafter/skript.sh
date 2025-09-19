@@ -1,42 +1,7 @@
 #!/bin/bash
 set -e
 
-# ==============================
-# Spinner and step helpers
-# ==============================
-spinner() {
-    local pid=$1
-    local delay=0.1
-    local spinstr='|/-\'
-    while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
-        local temp=${spinstr#?}
-        printf " [%c]  " "$spinstr"
-        spinstr=$temp${spinstr%"$temp"}
-        sleep $delay
-        printf "\b\b\b\b\b\b"
-    done
-    printf "      \b\b\b\b\b\b"
-}
-
-print_step() {
-    echo
-    echo "[*] $1"
-}
-
-run_step() {
-    local msg="$1"
-    shift
-    echo
-    echo "[*] $msg"
-    "$@" &
-    local pid=$!
-    spinner $pid
-    wait $pid
-}
-
-# ==============================
-# Environment save/load
-# ==============================
+# ========= CONFIG FUNCTIONS =========
 save_env() {
     mkdir -p /root/cloudflare_env
     cat > /root/cloudflare_env/.env <<EOF
@@ -56,68 +21,41 @@ load_env() {
     fi
 }
 
-# ==============================
-# Parse arguments
-# ==============================
-while [[ "$#" -gt 0 ]]; do
-    case $1 in
-        --api) CF_API="$2"; shift ;;
-        --zone) CF_ZONE="$2"; shift ;;
-        --domain) CF_DOMAIN="$2"; shift ;;
+# ========= ARGUMENTS =========
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --api) CF_API="$2"; shift 2 ;;
+        --zone) CF_ZONE="$2"; shift 2 ;;
+        --domain) CF_DOMAIN="$2"; shift 2 ;;
+        *) shift ;;
     esac
-    shift
 done
 
-# Load previous env if exists
+# Load saved environment if available
 load_env
 
-# Ask interactively if not set
-if [[ -z "$CF_API" ]]; then
-    read -p "Enter your Cloudflare API Token: " CF_API
-fi
-if [[ -z "$CF_ZONE" ]]; then
-    read -p "Enter your Cloudflare Zone ID: " CF_ZONE
-fi
-if [[ -z "$CF_DOMAIN" ]]; then
-    read -p "Enter your Cloudflare domain (example.com): " CF_DOMAIN
-fi
+# ========= SYSTEM SETUP =========
+echo "[1/6] Updating system packages..."
+apt update && apt upgrade -y
 
-# ==============================
-# Step 1: Update system
-# ==============================
-run_step "Updating system packages..." bash -c "DEBIAN_FRONTEND=noninteractive apt-get -y -qq update && DEBIAN_FRONTEND=noninteractive apt-get -y -qq upgrade"
+echo "[2/6] Installing Docker..."
+curl -sSL https://get.docker.com/ | CHANNEL=stable bash
+systemctl enable --now docker
 
-# ==============================
-# Step 2: Install Docker
-# ==============================
-run_step "Installing Docker..." bash -c "curl -sSL https://get.docker.com/ | CHANNEL=stable bash && systemctl enable --now docker"
-
-# ==============================
-# Step 3: Enable swapaccount if GRUB exists
-# ==============================
-run_step "Enabling swap accounting..." bash -c '
-if [[ -f /etc/default/grub ]]; then
-    sed -i "s/GRUB_CMDLINE_LINUX_DEFAULT=\"[^\"]*\"/GRUB_CMDLINE_LINUX_DEFAULT=\"swapaccount=1\"/" /etc/default/grub
+echo "[3/6] Enabling swap accounting..."
+if [ -f /etc/default/grub ]; then
+    sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="[^"]*"/GRUB_CMDLINE_LINUX_DEFAULT="swapaccount=1"/' /etc/default/grub
     update-grub || true
 else
     echo "No GRUB found, skipping swapaccount step."
 fi
-'
 
-# ==============================
-# Step 4: Install Wings
-# ==============================
-run_step "Installing Pterodactyl Wings..." bash -c '
+echo "[4/6] Installing Pterodactyl Wings..."
 mkdir -p /etc/pterodactyl
-WINGS_URL="https://github.com/pterodactyl/wings/releases/latest/download/wings_linux_$([[ \"$(uname -m)\" == \"x86_64\" ]] && echo \"amd64\" || echo \"arm64\")"
-curl -L "$WINGS_URL" -o /usr/local/bin/wings --progress-bar
+curl -L -o /usr/local/bin/wings "https://github.com/pterodactyl/wings/releases/latest/download/wings_linux_$([[ $(uname -m) == "x86_64" ]] && echo "amd64" || echo "arm64")"
 chmod u+x /usr/local/bin/wings
-'
 
-# ==============================
-# Step 5: Create systemd service
-# ==============================
-run_step "Creating systemd service for Wings..." bash -c '
+echo "[5/6] Creating systemd service for Wings..."
 cat > /etc/systemd/system/wings.service <<EOF
 [Unit]
 Description=Pterodactyl Wings Daemon
@@ -139,32 +77,36 @@ RestartSec=5s
 [Install]
 WantedBy=multi-user.target
 EOF
+
 systemctl enable --now wings
-'
 
-# ==============================
-# Step 6: Firewalld setup
-# ==============================
-run_step "Installing and configuring firewalld..." bash -c '
-DEBIAN_FRONTEND=noninteractive apt-get -y install firewalld >/dev/null 2>&1 || true
-ufw disable >/dev/null 2>&1 || true
-systemctl stop ufw >/dev/null 2>&1 || true
-systemctl disable ufw >/dev/null 2>&1 || true
-systemctl enable --now firewalld >/dev/null 2>&1
+echo "[6/6] Installing and configuring firewalld..."
+apt install -y firewalld
+ufw disable || true
+systemctl stop ufw || true
+systemctl disable ufw || true
 
-ports=(2022 5657 56423 8080 25565-25800 50000-50500 19132)
-for p in "${ports[@]}"; do
-    firewall-cmd --permanent --add-port=${p}/tcp 2>/dev/null || true
-    firewall-cmd --permanent --add-port=${p}/udp 2>/dev/null || true
-done
-firewall-cmd --reload >/dev/null
+systemctl enable --now firewalld
+
+# TCP ports
+firewall-cmd --permanent --add-port=2022/tcp
+firewall-cmd --permanent --add-port=5657/tcp
+firewall-cmd --permanent --add-port=56423/tcp
+firewall-cmd --permanent --add-port=8080/tcp
+firewall-cmd --permanent --add-port=25565-25800/tcp
+firewall-cmd --permanent --add-port=50000-50500/tcp
+firewall-cmd --permanent --add-port=19132/tcp
+
+# UDP ports
+firewall-cmd --permanent --add-port=8080/udp
+firewall-cmd --permanent --add-port=25565-25800/udp
+firewall-cmd --permanent --add-port=50000-50500/udp
+firewall-cmd --permanent --add-port=19132/udp
+
+firewall-cmd --reload
 echo "✅ Firewalld setup complete!"
-'
 
-# ==============================
-# Step 7: Cloudflare DNS Setup
-# ==============================
-run_step "Setting up Cloudflare DNS records..." bash -c '
+# ========= CLOUDFLARE DNS =========
 SERVER_IP=$(curl -s http://ipv4.icanhazip.com)
 
 if [[ "$DNS_CREATED" != "true" ]]; then
@@ -181,42 +123,28 @@ if [[ "$DNS_CREATED" != "true" ]]; then
 
     curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records" \
         -H "Authorization: Bearer $CF_API" -H "Content-Type: application/json" \
-        --data "{\"type\":\"A\",\"name\":\"$CF_NODE_NAME\",\"content\":\"$SERVER_IP\",\"ttl\":120,\"proxied\":false,\"comment\":\"$NODE_NAME\"}" >/dev/null
+        --data "{\"type\":\"A\",\"name\":\"$CF_NODE_NAME\",\"content\":\"$SERVER_IP\",\"ttl\":120,\"proxied\":false,\"comment\":\"$NODE_NAME\"}"
 
     curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records" \
         -H "Authorization: Bearer $CF_API" -H "Content-Type: application/json" \
-        --data "{\"type\":\"A\",\"name\":\"$CF_GAME_NAME\",\"content\":\"$SERVER_IP\",\"ttl\":120,\"proxied\":false,\"comment\":\"$NODE_NAME game ip\"}" >/dev/null
+        --data "{\"type\":\"A\",\"name\":\"$CF_GAME_NAME\",\"content\":\"$SERVER_IP\",\"ttl\":120,\"proxied\":false,\"comment\":\"$NODE_NAME game ip\"}"
 
     echo "✅ DNS records created:"
     echo " - $CF_NODE_NAME"
     echo " - $CF_GAME_NAME"
 
     DNS_CREATED=true
+    save_env
+else
+    echo "✅ DNS already created, skipping..."
 fi
 
-save_env
-'
-
-# ==============================
-# Step 8: Resource info
-# ==============================
-run_step "Gathering system resource info..." bash -c '
-TOTAL_RAM_KB=$(grep MemTotal /proc/meminfo | awk "{print \$2}")
-TOTAL_RAM_MB=$((TOTAL_RAM_KB / 1024))
+# ========= FINAL SUMMARY =========
+TOTAL_RAM_MB=$(free -m | awk '/^Mem:/{print $2}')
 ALLOC_RAM_MB=$((TOTAL_RAM_MB - 2048))
-
-TOTAL_DISK_MB=$(df --output=avail -m / | tail -1)
+TOTAL_DISK_MB=$(df --total -m | awk '/^total/{print $2}')
 ALLOC_DISK_MB=$((TOTAL_DISK_MB - 51200))
-'
 
-# Ensure node info is set for final summary
-: "${NODE_NAME:="Unknown Node"}"
-: "${CF_NODE_NAME:="node.$CF_DOMAIN"}"
-: "${CF_GAME_NAME:="game.$CF_DOMAIN"}"
-
-# ==============================
-# Final summary including IP aliases
-# ==============================
 echo
 echo "=============================================="
 echo "✅ Wings Node Setup Complete!"
