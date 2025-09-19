@@ -1,50 +1,50 @@
 #!/bin/bash
 set -e
 
-# ----------------- Parse Arguments -----------------
-while [[ "$#" -gt 0 ]]; do
+# -------------------- Arguments --------------------
+while [[ $# -gt 0 ]]; do
     case $1 in
-        --api) CF_API="$2"; shift ;;
-        --zone) CF_ZONE="$2"; shift ;;
-        --domain) CF_DOMAIN="$2"; shift ;;
-        *) echo "Unknown parameter passed: $1"; exit 1 ;;
+        --api) CF_API="$2"; shift 2 ;;
+        --zone) CF_ZONE="$2"; shift 2 ;;
+        --domain) CF_DOMAIN="$2"; shift 2 ;;
+        *) echo "Unknown arg $1"; exit 1 ;;
     esac
-    shift
 done
 
-# ----------------- Ask Wings Node Name -----------------
-read -p "Enter a name for this Wings node (used in DNS comment): " NODE_NAME
+# -------------------- Ask for Wings Name --------------------
+read -p "Enter a name for this Wings node (used for DNS comments): " NODE_NAME
 
-# ----------------- Detect server IP -----------------
-SERVER_IP=$(curl -s https://ipinfo.io/ip)
+# -------------------- Server Info --------------------
+SERVER_IP=$(curl -s ifconfig.me)
+TOTAL_RAM_MB=$(free -m | awk '/^Mem:/{print $2}')
+TOTAL_DISK_MB=$(df --output=size -BM / | tail -1 | tr -dc '0-9')
 
-# ----------------- Install Docker if missing -----------------
+# -------------------- Docker --------------------
 if command -v docker &> /dev/null; then
-    echo "[1/7] Docker is already installed, skipping installation..."
+    echo "[1/6] Docker is already installed, skipping installation..."
 else
-    echo "[1/7] Installing Docker..."
+    echo "[1/6] Installing Docker..."
     curl -sSL https://get.docker.com/ | CHANNEL=stable bash
     sudo systemctl enable --now docker
 fi
 
-# ----------------- Enable swap accounting -----------------
-echo "[2/7] Enabling swap accounting..."
-if [ -f /etc/default/grub ]; then
+# -------------------- Swap Accounting --------------------
+if [[ -f /etc/default/grub ]]; then
     sudo sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT="/GRUB_CMDLINE_LINUX_DEFAULT="swapaccount=1 /' /etc/default/grub
-    sudo update-grub
-    echo "Swap accounting enabled."
+    sudo update-grub || true
+    echo "[2/6] Swap accounting enabled."
 else
-    echo "No GRUB found, skipping swapaccount step."
+    echo "[2/6] No GRUB found, skipping swapaccount step."
 fi
 
-# ----------------- Install Wings -----------------
-echo "[3/7] Installing Wings..."
+# -------------------- Wings Installation --------------------
+echo "[3/6] Installing Wings..."
 sudo mkdir -p /etc/pterodactyl
 curl -L -o /usr/local/bin/wings "https://github.com/pterodactyl/wings/releases/latest/download/wings_linux_$([[ "$(uname -m)" == "x86_64" ]] && echo "amd64" || echo "arm64")"
 sudo chmod u+x /usr/local/bin/wings
 
-# ----------------- Create systemd service -----------------
-sudo tee /etc/systemd/system/wings.service > /dev/null <<EOL
+# -------------------- Wings Systemd --------------------
+cat <<EOF | sudo tee /etc/systemd/system/wings.service
 [Unit]
 Description=Pterodactyl Wings Daemon
 After=docker.service
@@ -64,23 +64,23 @@ RestartSec=5s
 
 [Install]
 WantedBy=multi-user.target
-EOL
+EOF
 
 sudo systemctl enable --now wings
 
-# ----------------- Firewalld setup -----------------
-echo "[4/7] Installing and configuring firewalld..."
+# -------------------- Firewalld --------------------
+echo "[4/6] Setting up firewalld..."
 sudo apt update -y
 sudo apt install -y firewalld
 sudo systemctl enable --now firewalld
 
 # TCP ports
-for port in 2022 5657 56423 8080 25565-25800 50000-50500 19132; do
-    sudo firewall-cmd --permanent --add-port=$port/tcp
+for p in 2022 5657 56423 8080 25565-25800 50000-50500 19132; do
+    sudo firewall-cmd --permanent --add-port=$p/tcp
 done
 # UDP ports
-for port in 8080 25565-25800 50000-50500 19132; do
-    sudo firewall-cmd --permanent --add-port=$port/udp
+for p in 8080 25565-25800 50000-50500 19132; do
+    sudo firewall-cmd --permanent --add-port=$p/udp
 done
 sudo firewall-cmd --reload
 echo "✅ Firewalld setup complete!"
@@ -88,12 +88,13 @@ echo "Open Ports:"
 echo "  TCP: 2022, 5657, 56423, 8080, 25565-25800, 19132, 50000-50500"
 echo "  UDP: 8080, 25565-25800, 19132, 50000-50500"
 
-# ----------------- Cloudflare DNS -----------------
-echo "[5/7] Creating Cloudflare DNS records..."
+# -------------------- Cloudflare DNS --------------------
+echo "[5/6] Creating Cloudflare DNS records..."
+
 NEXT_NODE=1
 while true; do
     NODE_CHECK=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records?type=A&name=node-$NEXT_NODE.$CF_DOMAIN" \
-        -H "Authorization: Bearer $CF_API" -H "Content-Type: application/json" | jq -r '.result[] | select(.content=="'"$SERVER_IP"'") | .id')
+        -H "Authorization: Bearer $CF_API" -H "Content-Type: application/json" | grep -o "\"id\":")
     if [[ -z "$NODE_CHECK" ]]; then
         break
     else
@@ -104,28 +105,31 @@ done
 CF_NODE_NAME="node-$NEXT_NODE.$CF_DOMAIN"
 CF_GAME_NAME="game-$NEXT_NODE.$CF_DOMAIN"
 
-# Node A record
 curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records" \
      -H "Authorization: Bearer $CF_API" \
      -H "Content-Type: application/json" \
      --data '{"type":"A","name":"'"$CF_NODE_NAME"'","content":"'"$SERVER_IP"'","ttl":120,"comment":"'"$NODE_NAME"'"}'
 
-# Game A record
 curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records" \
      -H "Authorization: Bearer $CF_API" \
      -H "Content-Type: application/json" \
      --data '{"type":"A","name":"'"$CF_GAME_NAME"'","content":"'"$SERVER_IP"'","ttl":120,"comment":"'"$NODE_NAME"' game ip"}'
 
-# ----------------- SSL Setup -----------------
-echo "[6/7] Installing SSL..."
-sudo apt update
+# -------------------- SSL --------------------
+echo "[6/6] Installing SSL..."
 sudo apt install -y certbot
 sudo certbot certonly --nginx -d "$CF_NODE_NAME"
+# Add cron job to renew
+(sudo crontab -l 2>/dev/null; echo "0 23 * * * certbot renew --quiet --deploy-hook \"systemctl restart nginx\"") | sudo crontab -
 
-# Add cron job for auto-renew
-(crontab -l 2>/dev/null; echo "0 23 * * * certbot renew --quiet --deploy-hook 'systemctl restart nginx'") | crontab -
+# -------------------- Final Summary --------------------
+ALLOC_RAM_MB=$TOTAL_RAM_MB
+ALLOC_DISK_MB=$(df --output=avail -BM / | tail -1 | tr -dc '0-9')
 
-# ----------------- Final Summary -----------------
+# Fetch location without jq
+LOCATION=$(curl -s https://ipinfo.io/$SERVER_IP | grep -Eo '"city": ?"[^"]+"' | cut -d'"' -f4), \
+         $(curl -s https://ipinfo.io/$SERVER_IP | grep -Eo '"country": ?"[^"]+"' | cut -d'"' -f4)
+
 echo
 echo "=============================================="
 echo "✅ Wings Node Setup Complete!"
@@ -136,27 +140,17 @@ echo "  Wings FQDN  : $CF_NODE_NAME"
 echo "  Game FQDN   : $CF_GAME_NAME"
 echo "  Public IP   : $SERVER_IP"
 echo "  Wings Port  : 8080 (default)"
-ALLOC_RAM_MB=$(free -m | awk '/^Mem:/{print $2}')
-TOTAL_RAM_MB=$ALLOC_RAM_MB
-ALLOC_DISK_MB=$(df --output=avail / | tail -1)
-TOTAL_DISK_MB=$(df --output=size / | tail -1)
 echo "  RAM (alloc) : ${ALLOC_RAM_MB} MB (from total ${TOTAL_RAM_MB} MB)"
 echo "  Disk (alloc): ${ALLOC_DISK_MB} MB (from total ${TOTAL_DISK_MB} MB)"
-
-# Fetch live location
-LOCATION=$(curl -s https://ipinfo.io/$SERVER_IP | jq -r '.city + ", " + .country')
 echo "  Location    : $LOCATION"
-
 echo
 echo "IP Aliases:"
 echo "  Wings Node : $CF_NODE_NAME → $SERVER_IP"
 echo "  Game Node  : $CF_GAME_NAME → $SERVER_IP"
-
 echo
 echo "Open Ports:"
 echo "  TCP: 2022, 5657, 56423, 8080, 25565-25800, 19132, 50000-50500"
 echo "  UDP: 8080, 25565-25800, 19132, 50000-50500"
-
 echo
 echo "Your server is protected with firewalld and required ports are open."
 echo "=============================================="
