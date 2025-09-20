@@ -66,6 +66,7 @@ RestartSec=5s
 [Install]
 WantedBy=multi-user.target
 EOF
+
 sudo systemctl enable --now wings
 # ---------------- Firewalld ----------------
 echo "[4/7] Setting up firewalld..."
