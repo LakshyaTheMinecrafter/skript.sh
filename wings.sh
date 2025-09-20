@@ -141,6 +141,7 @@ create_dns "$CF_GAME_NAME" "$NODE_NAME game ip"
 # ---------------- SSL ----------------
 echo "[6/7] Installing SSL..."
 sudo apt install -y certbot
+sudo apt install -y python3-certbot-nginx
 certbot certonly --standalone -d "$CF_NODE_NAME"
 
 # Add cron for renewal
