@@ -120,17 +120,43 @@ create_dns() {
 }
 create_dns "$CF_NODE_NAME" "$NODE_NAME"
 create_dns "$CF_GAME_NAME" "$NODE_NAME game ip"
+
+# ---------------- SSL using acme.sh with Cloudflare DNS API ----------------
+echo "[SSL] Installing and issuing SSL certificate with acme.sh..."
+
+# Export Cloudflare credentials for acme.sh
+export CF_Token="$CF_API"
+export CF_Zone_ID="$CF_ZONE"
+export CF_Account_ID="$CF_ACCOUNT"
+
+# Install acme.sh if not present
+if ! command -v acme.sh &> /dev/null; then
+    curl https://get.acme.sh | sh
+    source ~/.bashrc
+fi
+
+# Issue SSL certificate for node domain and wildcard for root domain
+acme.sh --issue --dns dns_cf -d "$CF_NODE_NAME" -d "*.$CF_DOMAIN" --force
+
+# Install the issued certificate and key to appropriate system paths
+acme.sh --install-cert -d "$CF_NODE_NAME" \
+--key-file /etc/ssl/private/$CF_NODE_NAME.key \
+--fullchain-file /etc/ssl/certs/$CF_NODE_NAME.crt \
+--reloadcmd "systemctl restart nginx && systemctl restart wings"
+
+echo "✅ SSL certificate installed for $CF_NODE_NAME"
+
 # ---------------- SSL ----------------
-echo "[6/7] Installing SSL..."
-sudo apt install -y certbot python3-certbot-nginx
+#echo "[6/7] Installing SSL..."
+#sudo apt install -y certbot python3-certbot-nginx
 
 # Ensure nginx is started so certbot --nginx can operate correctly
-sudo systemctl start nginx
+#sudo systemctl start nginx
 
-certbot --nginx -d "$CF_NODE_NAME" --email lakshyakatv@gmail.com --agree-tos --no-eff-email --non-interactive
+#certbot --nginx -d "$CF_NODE_NAME" --email lakshyakatv@gmail.com --agree-tos --no-eff-email --non-interactive
 
 # Add cron for renewal that reloads nginx after renew
-(crontab -l 2>/dev/null; echo "0 23 * * * certbot renew --quiet --deploy-hook 'systemctl reload nginx'") | crontab -
+#(crontab -l 2>/dev/null; echo "0 23 * * * certbot renew --quiet --deploy-hook 'systemctl reload nginx'") | crontab -
 # ---------------- Final Summary ----------------
 echo
 echo "=============================================="
