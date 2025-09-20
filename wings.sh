@@ -6,6 +6,7 @@ while [[ $# -gt 0 ]]; do
     --api) CF_API="$2"; shift 2 ;;
     --zone) CF_ZONE="$2"; shift 2 ;;
     --domain) CF_DOMAIN="$2"; shift 2 ;;
+    --account) CF_ACCOUNT="$2"; shift 2 ;;
     *) shift ;;
   esac
 done
@@ -19,6 +20,8 @@ fi
 if [[ -z "$CF_DOMAIN" ]]; then
     read -p "Enter your Cloudflare Domain: " CF_DOMAIN
 fi
+if [[ -z "$CF_ACCOUNT" ]]; then
+    read -p "Enter your Cloudflare Account ID: " CF_ACCOUNT
 # Ask for Wings node name (used in DNS comment)
 read -p "Enter a name for this Wings node (used in DNS comments): " NODE_NAME
 # ---------------- Docker ----------------
