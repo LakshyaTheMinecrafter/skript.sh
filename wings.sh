@@ -22,6 +22,7 @@ if [[ -z "$CF_DOMAIN" ]]; then
 fi
 if [[ -z "$CF_ACCOUNT" ]]; then
     read -p "Enter your Cloudflare Account ID: " CF_ACCOUNT
+fi
 # Ask for Wings node name (used in DNS comment)
 read -p "Enter a name for this Wings node (used in DNS comments): " NODE_NAME
 # ---------------- Docker ----------------
