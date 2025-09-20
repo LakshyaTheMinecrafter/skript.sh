@@ -141,6 +141,9 @@ create_dns "$CF_GAME_NAME" "$NODE_NAME game ip"
 # ---------------- SSL using acme.sh with Cloudflare DNS API ----------------
 echo "[6/7] Installing and issuing SSL certificate with acme.sh..."
 
+# Prompt for email required by acme.sh
+read -p "Enter your email for SSL certificate registration: " SSL_EMAIL
+
 # Export Cloudflare credentials for acme.sh
 export CF_Token="$CF_API"
 export CF_Zone_ID="$CF_ZONE"
@@ -149,17 +152,23 @@ export CF_Account_ID="$CF_ACCOUNT"
 # Install acme.sh if not present
 if ! command -v acme.sh &> /dev/null; then
     curl https://get.acme.sh | sh
-    export PATH="$HOME/.acme.sh:$PATH"
+    export PATH="$HOME/.acme.sh:${PATH}"
 fi
 
-# Issue SSL certificate for node domain and wildcard for root domain
+# Register account (required)
+acme.sh --register-account -m "$SSL_EMAIL"
+
+# Use Let's Encrypt instead of ZeroSSL (recommended)
+acme.sh --set-default-ca --server letsencrypt
+
+# Issue SSL certificate using Cloudflare DNS challenge
 acme.sh --issue --dns dns_cf -d "$CF_NODE_NAME" -d "*.$CF_DOMAIN" --force
 
-# Install the issued certificate and key to appropriate system paths
+# Install the certificate and key
 acme.sh --install-cert -d "$CF_NODE_NAME" \
---key-file /etc/ssl/private/$CF_NODE_NAME.key \
---fullchain-file /etc/ssl/certs/$CF_NODE_NAME.crt \
---reloadcmd "systemctl restart nginx && systemctl restart wings"
+  --key-file /etc/ssl/private/$CF_NODE_NAME.key \
+  --fullchain-file /etc/ssl/certs/$CF_NODE_NAME.crt \
+  --reloadcmd "systemctl restart nginx && systemctl restart wings"
 
 echo "✅ SSL certificate installed for $CF_NODE_NAME"
 
