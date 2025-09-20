@@ -144,7 +144,7 @@ create_dns "$CF_GAME_NAME" "$NODE_NAME game ip"
 
 # ---------------- SSL using Cloudflare Global API Key ----------------
 echo "[6/7] Installing and issuing SSL certificate with acme.sh (CF_Key + CF_Email)..."
-curl https://get.acme.sh | sh
+curl https://get.acme.sh | sh -s email=lakshyakatv@gmail.com
 sudo mkdir -p /etc/letsencrypt/live/$CF_NODE_NAME
 export CF_Key="$CF_KEY"
 export CF_Email="$CF_EMAIL"
