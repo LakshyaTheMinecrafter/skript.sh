@@ -6,8 +6,7 @@ while [[ $# -gt 0 ]]; do
     --api) CF_API="$2"; shift 2 ;;
     --zone) CF_ZONE="$2"; shift 2 ;;
     --domain) CF_DOMAIN="$2"; shift 2 ;;
-    --email) CF_EMAIL="$2"; shift 2 ;;
-    --key) CF_KEY="$2"; shift 2 ;;
+    --email) EMAIL="$2"; shift 2 ;;
     *) shift ;;
   esac
 done
@@ -22,11 +21,8 @@ fi
 if [[ -z "$CF_DOMAIN" ]]; then
     read -p "Enter your Cloudflare Domain: " CF_DOMAIN
 fi
-if [[ -z "$CF_EMAIL" ]]; then
-    read -p "Enter your Cloudflare Email: " CF_EMAIL
-fi
-if [[ -z "$CF_KEY" ]]; then
-    read -p "Enter your Cloudflare Global API Key: " CF_KEY
+if [[ -z "$EMAIL" ]]; then
+    read -p "Enter your Email: " EMAIL
 fi
 
 # Ask for Wings node name (used in DNS comment)
@@ -143,14 +139,13 @@ create_dns "$CF_NODE_NAME" "$NODE_NAME"
 create_dns "$CF_GAME_NAME" "$NODE_NAME game ip"
 
 # ---------------- SSL using Cloudflare Global API Key ----------------
-echo "[6/7] Installing and issuing SSL certificate with acme.sh (CF_Key + CF_Email)..."
-curl https://get.acme.sh | sh -s email=lakshyakatv@gmail.com
-sudo mkdir -p /etc/letsencrypt/live/$CF_NODE_NAME
-export CF_Key="$CF_KEY"
-export CF_Email="$CF_EMAIL"
-acme.sh --issue --dns dns_cf -d "$CF_NODE_NAME" --server letsencrypt \
---key-file /etc/letsencrypt/live/$CF_NODE_NAME/privkey.pem \
---fullchain-file /etc/letsencrypt/live/$CF_NODE_NAME/fullchain.pem
+echo "[6/7] Getting SSL"
+sudo apt update
+sudo apt install -y certbot
+# Run this if you use Nginx
+sudo apt install -y python3-certbot-nginx
+# Nginx
+certbot certonly --nginx -d $CF_NODE_NAME --email $EMAIL --agree-tos
 echo "✅ SSL certificate installed for $CF_NODE_NAME"
 
 # ---------------- Final Summary ----------------
