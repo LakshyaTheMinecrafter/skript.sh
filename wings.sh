@@ -1,7 +1,5 @@
 #!/bin/bash
-
 set -e
-
 # ---------------- Cloudflare args ----------------
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -11,7 +9,6 @@ while [[ $# -gt 0 ]]; do
     *) shift ;;
   esac
 done
-
 # Ask for Cloudflare info if not passed
 if [[ -z "$CF_API" ]]; then
     read -p "Enter your Cloudflare API Token: " CF_API
@@ -22,10 +19,8 @@ fi
 if [[ -z "$CF_DOMAIN" ]]; then
     read -p "Enter your Cloudflare Domain: " CF_DOMAIN
 fi
-
 # Ask for Wings node name (used in DNS comment)
 read -p "Enter a name for this Wings node (used in DNS comments): " NODE_NAME
-
 # ---------------- Docker ----------------
 if command -v docker &> /dev/null; then
     echo "[1/7] Docker is already installed, skipping installation..."
@@ -34,7 +29,6 @@ else
     curl -sSL https://get.docker.com/ | CHANNEL=stable bash
     sudo systemctl enable --now docker
 fi
-
 # ---------------- GRUB swap ----------------
 echo "[2/7] Enabling swap accounting..."
 if [[ -f /etc/default/grub ]]; then
@@ -43,13 +37,11 @@ if [[ -f /etc/default/grub ]]; then
 else
     echo "No /etc/default/grub found, skipping swapaccount"
 fi
-
 # ---------------- Wings ----------------
 echo "[3/7] Installing Pterodactyl Wings..."
 sudo mkdir -p /etc/pterodactyl
 curl -L -o /usr/local/bin/wings "https://github.com/pterodactyl/wings/releases/latest/download/wings_linux_$([[ "$(uname -m)" == "x86_64" ]] && echo "amd64" || echo "arm64")"
 sudo chmod u+x /usr/local/bin/wings
-
 # Create systemd service
 sudo tee /etc/systemd/system/wings.service > /dev/null <<'EOF'
 [Unit]
@@ -57,7 +49,6 @@ Description=Pterodactyl Wings Daemon
 After=docker.service
 Requires=docker.service
 PartOf=docker.service
-
 [Service]
 User=root
 WorkingDirectory=/etc/pterodactyl
@@ -68,13 +59,10 @@ Restart=on-failure
 StartLimitInterval=180
 StartLimitBurst=30
 RestartSec=5s
-
 [Install]
 WantedBy=multi-user.target
 EOF
-
 sudo systemctl enable --now wings
-
 # ---------------- Firewalld ----------------
 echo "[4/7] Setting up firewalld..."
 sudo apt update -y
@@ -82,26 +70,21 @@ sudo apt install -y firewalld
 sudo systemctl stop ufw || true
 sudo systemctl disable ufw || true
 sudo systemctl enable --now firewalld
-
 # TCP ports
 for port in 2022 5657 56423 8080 25565-25800 50000-50500 19132; do
     sudo firewall-cmd --permanent --add-port=${port}/tcp
 done
-
 # UDP ports
 for port in 8080 25565-25800 50000-50500 19132; do
     sudo firewall-cmd --permanent --add-port=${port}/udp
 done
-
 sudo firewall-cmd --reload
 echo "✅ Firewalld setup complete!"
 echo "Allowed TCP: 2022, 5657, 56423, 8080, 25565-25800, 19132, 50000-50500"
 echo "Allowed UDP: 8080, 25565-25800, 19132, 50000-50500"
-
 # ---------------- Cloudflare DNS ----------------
 echo "[5/7] Creating Cloudflare DNS records..."
 SERVER_IP=$(curl -s https://ipinfo.io/ip)
-
 NEXT_NODE=1
 while true; do
     NODE_CHECK=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records?type=A&name=node-$NEXT_NODE.$CF_DOMAIN" \
@@ -114,10 +97,8 @@ while true; do
         NEXT_NODE=$((NEXT_NODE+1))
     fi
 done
-
 CF_NODE_NAME="node-$NEXT_NODE.$CF_DOMAIN"
 CF_GAME_NAME="game-$NEXT_NODE.$CF_DOMAIN"
-
 create_dns() {
     local NAME="$1"
     local COMMENT="$2"
@@ -134,19 +115,19 @@ create_dns() {
         echo "Response: $RESPONSE"
     fi
 }
-
 create_dns "$CF_NODE_NAME" "$NODE_NAME"
 create_dns "$CF_GAME_NAME" "$NODE_NAME game ip"
-
 # ---------------- SSL ----------------
 echo "[6/7] Installing SSL..."
-sudo apt install -y certbot
-sudo apt install -y python3-certbot-nginx
-certbot certonly --standalone -d "$CF_NODE_NAME"
+sudo apt install -y certbot python3-certbot-nginx
 
-# Add cron for renewal
-(crontab -l 2>/dev/null; echo "0 23 * * * certbot renew --quiet --deploy-hook 'systemctl restart nginx'") | crontab -
+# Ensure nginx is started so certbot --nginx can operate correctly
+sudo systemctl start nginx
 
+certbot --nginx -d "$CF_NODE_NAME" --email lakshyakatv@gmail.com --agree-tos --no-eff-email --non-interactive
+
+# Add cron for renewal that reloads nginx after renew
+(crontab -l 2>/dev/null; echo "0 23 * * * certbot renew --quiet --deploy-hook 'systemctl reload nginx'") | crontab -
 # ---------------- Final Summary ----------------
 echo
 echo "=============================================="
@@ -164,20 +145,16 @@ ALLOC_DISK_MB=$(df --output=avail -m / | tail -1)
 TOTAL_DISK_MB=$(df --output=size -m / | tail -1)
 echo "  RAM (alloc) : ${ALLOC_RAM_MB} MB (from total ${TOTAL_RAM_MB} MB)"
 echo "  Disk (alloc): ${ALLOC_DISK_MB} MB (from total ${TOTAL_DISK_MB} MB)"
-
 LOCATION=$(curl -s https://ipinfo.io/$SERVER_IP | awk -F'"' '/"city"/{city=$4} /"country"/{country=$4} END{print city ", " country}')
 echo "  Location    : $LOCATION"
-
 echo
 echo "IP Aliases:"
 echo "  Wings Node : $CF_NODE_NAME → $SERVER_IP"
 echo "  Game Node  : $CF_GAME_NAME → $SERVER_IP"
-
 echo
 echo "Open Ports:"
 echo "  TCP: 2022, 5657, 56423, 8080, 25565-25800, 19132, 50000-50500"
 echo "  UDP: 8080, 25565-25800, 19132, 50000-50500"
-
 echo
 echo "Your server is protected with firewalld and required ports are open."
 echo "=============================================="
