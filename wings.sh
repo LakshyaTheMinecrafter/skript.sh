@@ -36,6 +36,19 @@ else
     curl -sSL https://get.docker.com/ | CHANNEL=stable bash
     sudo systemctl enable --now docker
 fi
+echo "[Docker] Configuring Docker daemon to disable iptables..."
+DAEMON_JSON="/etc/docker/daemon.json"
+
+# Create or overwrite the file with the desired content
+sudo tee "$DAEMON_JSON" > /dev/null <<'EOF'
+{
+  "iptables": false
+}
+EOF
+
+# Restart Docker to apply changes
+sudo systemctl restart docker
+echo "✅ Docker daemon configured and restarted."
 
 # ---------------- GRUB swap ----------------
 echo "[2/7] Enabling swap accounting..."
