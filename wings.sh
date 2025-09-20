@@ -145,18 +145,26 @@ create_dns "$CF_GAME_NAME" "$NODE_NAME game ip"
 # ---------------- SSL using Cloudflare Global API Key ----------------
 echo "[6/7] Installing and issuing SSL certificate with acme.sh (CF_Key + CF_Email)..."
 
-sudo mkdir -p /etc/letsencrypt/live/$CF_DOMAIN
+ACME_SH="/root/.acme.sh/acme.sh"
+
+# Install acme.sh if not present
+if [[ ! -f "$ACME_SH" ]]; then
+    curl https://get.acme.sh | sh
+fi
+
+# Make sure we can run it
+chmod +x "$ACME_SH"
 
 # Switch CA to Let's Encrypt
-acme.sh --set-default-ca --server letsencrypt
+"$ACME_SH" --set-default-ca --server letsencrypt
 
 # Issue SSL certificate
-acme.sh --issue --dns dns_cf -d "$CF_NODE_NAME" --server letsencrypt \
+"$ACME_SH" --issue --dns dns_cf -d "$CF_NODE_NAME" --server letsencrypt \
   --key-file /etc/letsencrypt/live/$CF_DOMAIN/privkey.pem \
   --fullchain-file /etc/letsencrypt/live/$CF_DOMAIN/fullchain.pem
 
-# Install cert and restart wings automatically on renew
-acme.sh --install-cert -d "$CF_NODE_NAME" \
+# Install cert and reload Wings automatically
+"$ACME_SH" --install-cert -d "$CF_NODE_NAME" \
   --key-file /etc/letsencrypt/live/$CF_DOMAIN/privkey.pem \
   --fullchain-file /etc/letsencrypt/live/$CF_DOMAIN/fullchain.pem \
   --reloadcmd "systemctl restart wings"
