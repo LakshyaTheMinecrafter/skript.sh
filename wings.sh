@@ -6,7 +6,8 @@ while [[ $# -gt 0 ]]; do
     --api) CF_API="$2"; shift 2 ;;
     --zone) CF_ZONE="$2"; shift 2 ;;
     --domain) CF_DOMAIN="$2"; shift 2 ;;
-    --account) CF_ACCOUNT="$2"; shift 2 ;;
+    --email) CF_EMAIL="$2"; shift 2 ;;
+    --key) CF_KEY="$2"; shift 2 ;;
     *) shift ;;
   esac
 done
@@ -21,8 +22,11 @@ fi
 if [[ -z "$CF_DOMAIN" ]]; then
     read -p "Enter your Cloudflare Domain: " CF_DOMAIN
 fi
-if [[ -z "$CF_ACCOUNT" ]]; then
-    read -p "Enter your Cloudflare Account ID: " CF_ACCOUNT
+if [[ -z "$CF_EMAIL" ]]; then
+    read -p "Enter your Cloudflare Email: " CF_EMAIL
+fi
+if [[ -z "$CF_KEY" ]]; then
+    read -p "Enter your Cloudflare Global API Key: " CF_KEY
 fi
 
 # Ask for Wings node name (used in DNS comment)
@@ -138,37 +142,24 @@ create_dns() {
 create_dns "$CF_NODE_NAME" "$NODE_NAME"
 create_dns "$CF_GAME_NAME" "$NODE_NAME game ip"
 
-# ---------------- SSL using acme.sh with Cloudflare DNS API ----------------
-echo "[6/7] Installing and issuing SSL certificate with acme.sh..."
+# ---------------- SSL using Cloudflare Global API Key ----------------
+echo "[6/7] Installing and issuing SSL certificate with acme.sh (CF_Key + CF_Email)..."
 
-# Prompt for email required by acme.sh
-read -p "Enter your email for SSL certificate registration: " SSL_EMAIL
+sudo mkdir -p /etc/letsencrypt/live/$CF_DOMAIN
 
-# Export Cloudflare credentials for acme.sh
-export CF_Token="$CF_API"
-export CF_Zone_ID="$CF_ZONE"
-export CF_Account_ID="$CF_ACCOUNT"
-
-# Install acme.sh if not present
-if ! command -v acme.sh &> /dev/null; then
-    curl https://get.acme.sh | sh
-    export PATH="$HOME/.acme.sh:${PATH}"
-fi
-
-# Register account (required)
-acme.sh --register-account -m "$SSL_EMAIL"
-
-# Use Let's Encrypt instead of ZeroSSL (recommended)
+# Switch CA to Let's Encrypt
 acme.sh --set-default-ca --server letsencrypt
 
-# Issue SSL certificate using Cloudflare DNS challenge
-acme.sh --issue --dns dns_cf -d "$CF_NODE_NAME" -d "*.$CF_DOMAIN" --force
+# Issue SSL certificate
+acme.sh --issue --dns dns_cf -d "$CF_NODE_NAME" --server letsencrypt \
+  --key-file /etc/letsencrypt/live/$CF_DOMAIN/privkey.pem \
+  --fullchain-file /etc/letsencrypt/live/$CF_DOMAIN/fullchain.pem
 
-# Install the certificate and key
+# Install cert and restart wings automatically on renew
 acme.sh --install-cert -d "$CF_NODE_NAME" \
-  --key-file /etc/ssl/private/$CF_NODE_NAME.key \
-  --fullchain-file /etc/ssl/certs/$CF_NODE_NAME.crt \
-  --reloadcmd "systemctl restart nginx && systemctl restart wings"
+  --key-file /etc/letsencrypt/live/$CF_DOMAIN/privkey.pem \
+  --fullchain-file /etc/letsencrypt/live/$CF_DOMAIN/fullchain.pem \
+  --reloadcmd "systemctl restart wings"
 
 echo "✅ SSL certificate installed for $CF_NODE_NAME"
 
