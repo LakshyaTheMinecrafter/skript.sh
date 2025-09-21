@@ -172,12 +172,20 @@ echo "  Wings FQDN  : $CF_NODE_NAME"
 echo "  Game FQDN   : $CF_GAME_NAME"
 echo "  Public IP   : $SERVER_IP"
 echo "  Wings Port  : 8080 (default)"
-ALLOC_RAM_MB=$(free -m | awk '/^Mem:/ {print $2}')
-TOTAL_RAM_MB=$ALLOC_RAM_MB
-ALLOC_DISK_MB=$(df --output=avail -m / | tail -1)
+# RAM calculation
+TOTAL_RAM_MB=$(free -m | awk '/^Mem:/ {print $2}')
+ALLOC_RAM_MB=$(( TOTAL_RAM_MB * 90 / 100 ))
+
+# Disk calculation
 TOTAL_DISK_MB=$(df --output=size -m / | tail -1)
+ALLOC_DISK_MB=$(( TOTAL_DISK_MB - 61440 ))   # reserve 60 GB
+if (( ALLOC_DISK_MB < 0 )); then
+  ALLOC_DISK_MB=0
+fi
+
 echo "  RAM (alloc) : ${ALLOC_RAM_MB} MB (from total ${TOTAL_RAM_MB} MB)"
 echo "  Disk (alloc): ${ALLOC_DISK_MB} MB (from total ${TOTAL_DISK_MB} MB)"
+
 LOCATION=$(curl -s https://ipinfo.io/$SERVER_IP | awk -F'"' '/"city"/{city=$4} /"country"/{country=$4} END{print city ", " country}')
 echo "  Location    : $LOCATION"
 echo
