@@ -36,15 +36,15 @@ else
     curl -sSL https://get.docker.com/ | CHANNEL=stable bash
     sudo systemctl enable --now docker
 fi
-echo "[Docker] Configuring Docker daemon to disable iptables..."
-DAEMON_JSON="/etc/docker/daemon.json"
+#echo "[Docker] Configuring Docker daemon to disable iptables..."
+#DAEMON_JSON="/etc/docker/daemon.json"
 
 # Create or overwrite the file with the desired content
-sudo tee "$DAEMON_JSON" > /dev/null <<'EOF'
-{
-  "iptables": false
-}
-EOF
+#sudo tee "$DAEMON_JSON" > /dev/null <<'EOF'
+#{
+#    "iptables": false
+#}
+#EOF
 
 # Restart Docker to apply changes
 sudo systemctl restart docker
@@ -158,6 +158,17 @@ sudo apt install -y python3-certbot-nginx
 # Nginx
 certbot certonly --nginx -d $CF_NODE_NAME --email $EMAIL --agree-tos
 echo "✅ SSL certificate installed for $CF_NODE_NAME"
+# Cron job line
+CRON_JOB="0 23 * * * certbot renew --quiet --deploy-hook \"systemctl restart nginx\""
+
+# Check if the cron job already exists
+if sudo crontab -l | grep -Fq "$CRON_JOB"; then
+    echo "Cron job already exists."
+else
+    # Add the cron job
+    (sudo crontab -l 2>/dev/null; echo "$CRON_JOB") | sudo crontab -
+    echo "Cron job added successfully."
+fi
 
 # ---------------- Final Summary ----------------
 echo
