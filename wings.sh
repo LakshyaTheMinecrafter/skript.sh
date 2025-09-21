@@ -94,8 +94,6 @@ sudo systemctl enable --now wings
 echo "[4/7] Setting up firewalld..."
 sudo apt update -y
 sudo apt install -y firewalld
-sudo systemctl stop ufw || true
-sudo systemctl disable ufw || true
 sudo systemctl enable --now firewalld
 
 # TCP ports
