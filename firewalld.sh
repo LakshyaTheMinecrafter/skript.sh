@@ -6,11 +6,7 @@ echo "[1/4] Installing firewalld..."
 sudo apt update -y
 sudo apt install -y firewalld
 
-echo "[2/4] Disabling other firewalls (like ufw)..."
-sudo ufw disable || true
-sudo systemctl stop ufw || true
-sudo systemctl disable ufw || true
-
+echo "[2/4] Preparing..."
 echo "[3/4] Enabling firewalld..."
 sudo systemctl enable --now firewalld
 
