@@ -42,9 +42,7 @@ DAEMON_JSON="/etc/docker/daemon.json"
 # Create or overwrite the file with the desired content
 sudo tee "$DAEMON_JSON" > /dev/null <<'EOF'
 {
-    "iptables": false
-}
-{
+  "iptables": false,
   "dns": ["1.1.1.1", "8.8.8.8"]
 }
 EOF
