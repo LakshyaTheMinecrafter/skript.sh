@@ -44,6 +44,9 @@ sudo tee "$DAEMON_JSON" > /dev/null <<'EOF'
 {
     "iptables": false
 }
+{
+  "dns": ["1.1.1.1", "8.8.8.8"]
+}
 EOF
 
 # Restart Docker to apply changes
