@@ -97,18 +97,18 @@ sudo apt install -y firewalld
 sudo systemctl enable --now firewalld
 
 # TCP ports
-for port in 80 443 2022 5657 56423 8080 25565-25800 50000-50500 19132; do
+for port in 80 443 2022 5657 56423 8080 25565-25599 19132-19199; do
     sudo firewall-cmd --permanent --add-port=${port}/tcp
 done
 # UDP ports
-for port in 8080 25565-25800 50000-50500 19132; do
+for port in 8080 25565-25599 19132-19199; do
     sudo firewall-cmd --permanent --add-port=${port}/udp
 done
 sudo firewall-cmd --reload
 
 echo "✅ Firewalld setup complete!"
-echo "Allowed TCP: 2022, 5657, 56423, 8080, 25565-25800, 19132, 50000-50500"
-echo "Allowed UDP: 8080, 25565-25800, 19132, 50000-50500"
+echo "Allowed TCP: 80, 443, 2022, 5657, 56423, 8080, 25565-25599, 19132-19199"
+echo "Allowed UDP: 8080, 25565-25599, 19132-19199"
 
 # ---------------- Cloudflare DNS ----------------
 echo "[5/7] Creating Cloudflare DNS records..."
@@ -203,8 +203,8 @@ echo "  Wings Node : $CF_NODE_NAME → $SERVER_IP"
 echo "  Game Node  : $CF_GAME_NAME → $SERVER_IP"
 echo
 echo "Open Ports:"
-echo "  TCP: 2022, 5657, 56423, 8080, 25565-25800, 19132, 50000-50500"
-echo "  UDP: 8080, 25565-25800, 19132, 50000-50500"
+echo "  TCP: 80, 443, 2022, 5657, 56423, 8080, 25565-25599, 19132-19199"
+echo "  UDP: 8080, 25565-25599, 19132-19199"
 echo
 echo "Your server is protected with firewalld and required ports are open."
 echo "=============================================="
