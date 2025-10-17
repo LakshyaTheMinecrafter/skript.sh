@@ -46,34 +46,96 @@ echo "[Docker] Configuring Docker daemon to disable iptables..."
 #}
 #EOF
 # Your desired DNS servers
+# DNS_SERVERS=("8.8.8.8" "8.8.4.4" "1.1.1.1" "1.0.0.1")
+#
+# # Disable systemd-resolved (if running)
+# if systemctl is-active --quiet systemd-resolved; then
+#     echo "Disabling systemd-resolved..."
+#     sudo systemctl disable --now systemd-resolved
+# fi
+#
+# # Remove existing resolv.conf
+# if [ -f /etc/resolv.conf ]; then
+#     echo "Removing existing /etc/resolv.conf..."
+#     sudo rm /etc/resolv.conf
+# fi
+#
+# # Create a new resolv.conf
+# echo "Creating new /etc/resolv.conf with custom DNS..."
+# sudo bash -c "cat > /etc/resolv.conf <<EOF
+# # Custom DNS configured by script
+# $(for dns in "${DNS_SERVERS[@]}"; do echo "nameserver $dns"; done)
+# EOF"
+#
+# # Make it immutable to prevent overwrites
+# sudo chattr +i /etc/resolv.conf
+#
+# echo "DNS has been updated and locked. Current /etc/resolv.conf:"
+# cat /etc/resolv.conf
+#
+# echo "Done! Your VPS should now use the custom DNS."
+#!/bin/bash
+
 DNS_SERVERS=("8.8.8.8" "8.8.4.4" "1.1.1.1" "1.0.0.1")
 
-# Disable systemd-resolved (if running)
-if systemctl is-active --quiet systemd-resolved; then
-    echo "Disabling systemd-resolved..."
-    sudo systemctl disable --now systemd-resolved
+echo "=== DNS Configuration Script Starting ==="
+
+# Check if systemctl exists (some containers don't have it)
+if command -v systemctl &>/dev/null; then
+    # Check if systemd-resolved exists and disable it
+    if systemctl list-unit-files | grep -q "^systemd-resolved"; then
+        if systemctl is-active --quiet systemd-resolved; then
+            echo "Disabling systemd-resolved..."
+            sudo systemctl disable --now systemd-resolved || echo "Failed to disable systemd-resolved (might already be stopped)."
+        else
+            echo "systemd-resolved is already inactive."
+        fi
+    else
+        echo "systemd-resolved not installed, skipping disable step."
+    fi
+else
+    echo "systemctl not found — skipping systemd-resolved checks."
 fi
 
-# Remove existing resolv.conf
-if [ -f /etc/resolv.conf ]; then
-    echo "Removing existing /etc/resolv.conf..."
-    sudo rm /etc/resolv.conf
+# Handle /etc/resolv.conf safely
+if [ -e /etc/resolv.conf ]; then
+    # Make sure it's writable if previously locked
+    sudo chattr -i /etc/resolv.conf 2>/dev/null || true
+
+    if [ -L /etc/resolv.conf ]; then
+        echo "Removing existing symlink /etc/resolv.conf..."
+        sudo rm -f /etc/resolv.conf || echo "Could not remove symlink (already removed)."
+    else
+        echo "Removing existing file /etc/resolv.conf..."
+        sudo rm -f /etc/resolv.conf || echo "Could not remove file (already removed)."
+    fi
+else
+    echo "/etc/resolv.conf does not exist, skipping removal."
 fi
 
-# Create a new resolv.conf
+# Create new resolv.conf safely
 echo "Creating new /etc/resolv.conf with custom DNS..."
 sudo bash -c "cat > /etc/resolv.conf <<EOF
 # Custom DNS configured by script
-$(for dns in "${DNS_SERVERS[@]}"; do echo "nameserver $dns"; done)
-EOF"
+$(for dns in \"\${DNS_SERVERS[@]}\"; do echo \"nameserver \$dns\"; done)
+EOF" || {
+    echo "⚠️ Failed to write /etc/resolv.conf. Check permissions."
+    exit 0
+}
 
-# Make it immutable to prevent overwrites
-sudo chattr +i /etc/resolv.conf
+# Try to lock file (skip if unsupported)
+if sudo chattr +i /etc/resolv.conf 2>/dev/null; then
+    echo "Locked /etc/resolv.conf to prevent overwrites."
+else
+    echo "Warning: chattr not supported on this filesystem — skipping lock."
+fi
 
-echo "DNS has been updated and locked. Current /etc/resolv.conf:"
+# Display the result
+echo "✅ DNS configuration complete. Current /etc/resolv.conf:"
 cat /etc/resolv.conf
 
-echo "Done! Your VPS should now use the custom DNS."
+echo "=== Done! DNS Changed. ==="
+
 
 # Restart Docker to apply changes
 sudo systemctl restart docker
