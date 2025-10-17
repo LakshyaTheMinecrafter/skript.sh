@@ -198,36 +198,57 @@ echo "✅ SSL certificate installed for $CF_NODE_NAME"
 #    (sudo crontab -l 2>/dev/null; echo "$CRON_JOB") | sudo crontab -
 #    echo "Cron job added successfully."
 #fi
+#!/bin/bash
+
 # Define the cron job
 CRON_JOB="0 23 * * * certbot renew --quiet --deploy-hook \"systemctl restart nginx\""
+
+# Function to install cron if missing
+install_cron() {
+    echo "Attempting to install cron..."
+
+    if command -v apt-get &>/dev/null; then
+        sudo apt-get update -y && sudo apt-get install -y cron
+        sudo systemctl enable cron && sudo systemctl start cron
+    elif command -v yum &>/dev/null; then
+        sudo yum install -y cronie
+        sudo systemctl enable crond && sudo systemctl start crond
+    elif command -v dnf &>/dev/null; then
+        sudo dnf install -y cronie
+        sudo systemctl enable crond && sudo systemctl start crond
+    elif command -v apk &>/dev/null; then
+        sudo apk add --no-cache cronie
+        sudo rc-update add crond && sudo service crond start
+    else
+        echo "Unsupported package manager. Cannot install cron automatically."
+        return 1
+    fi
+}
 
 # Check if crontab command exists
 if ! command -v crontab &>/dev/null; then
     echo "crontab not found. Installing..."
+    if ! install_cron; then
+        echo "⚠️ Failed to install cron. Skipping cron job setup."
+        exit 0
+    fi
 
-    # Detect package manager and install cron
-    if command -v apt-get &>/dev/null; then
-        sudo apt-get update -y
-        sudo apt-get install -y cron
-        sudo systemctl enable cron
-        sudo systemctl start cron
-    elif command -v yum &>/dev/null; then
-        sudo yum install -y cronie
-        sudo systemctl enable crond
-        sudo systemctl start crond
-    elif command -v dnf &>/dev/null; then
-        sudo dnf install -y cronie
-        sudo systemctl enable crond
-        sudo systemctl start crond
-    elif command -v apk &>/dev/null; then
-        sudo apk add --no-cache cronie
-        sudo rc-update add crond
-        sudo service crond start
-    else
-        echo "Unsupported package manager. Please install cron manually."
-        exit 1
+    # Verify installation success
+    if ! command -v crontab &>/dev/null; then
+        echo "⚠️ Cron installation failed or crontab still not found. Skipping cron setup."
+        exit 0
     fi
 fi
+
+# Check if the cron job already exists
+if sudo crontab -l 2>/dev/null | grep -Fq "$CRON_JOB"; then
+    echo "Cron job already exists."
+else
+    # Add the cron job
+    (sudo crontab -l 2>/dev/null; echo "$CRON_JOB") | sudo crontab -
+    echo "✅ Cron job added successfully."
+fi
+
 
 # Check if the cron job already exists
 if sudo crontab -l 2>/dev/null | grep -Fq "$CRON_JOB"; then
