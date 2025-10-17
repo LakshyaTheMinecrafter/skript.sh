@@ -74,44 +74,49 @@ echo "[Docker] Configuring Docker daemon to disable iptables..."
 # cat /etc/resolv.conf
 #
 # echo "Done! Your VPS should now use the custom DNS."
-#!/bin/bash
 
+# --- DNS Configuration Section ---
 DNS_SERVERS=("8.8.8.8" "8.8.4.4" "1.1.1.1" "1.0.0.1")
 
 echo "=== DNS Configuration Script Starting ==="
 
-# Check if systemctl exists (some containers don't have it)
+# Only disable systemd-resolved if it exists
 if command -v systemctl &>/dev/null; then
-    # Check if systemd-resolved exists and disable it
     if systemctl list-unit-files | grep -q "^systemd-resolved"; then
         if systemctl is-active --quiet systemd-resolved; then
             echo "Disabling systemd-resolved..."
-            sudo systemctl disable --now systemd-resolved || echo "Failed to disable systemd-resolved (might already be stopped)."
+            sudo systemctl disable --now systemd-resolved || true
         else
             echo "systemd-resolved is already inactive."
         fi
     else
-        echo "systemd-resolved not installed, skipping disable step."
+        echo "systemd-resolved not installed, skipping."
     fi
-else
-    echo "systemctl not found — skipping systemd-resolved checks."
 fi
 
-# Handle /etc/resolv.conf safely
+# Backup current resolv.conf
 if [ -e /etc/resolv.conf ]; then
-    # Make sure it's writable if previously locked
+    sudo cp /etc/resolv.conf /etc/resolv.conf.backup 2>/dev/null || true
     sudo chattr -i /etc/resolv.conf 2>/dev/null || true
-
-    if [ -L /etc/resolv.conf ]; then
-        echo "Removing existing symlink /etc/resolv.conf..."
-        sudo rm -f /etc/resolv.conf || echo "Could not remove symlink (already removed)."
-    else
-        echo "Removing existing file /etc/resolv.conf..."
-        sudo rm -f /etc/resolv.conf || echo "Could not remove file (already removed)."
-    fi
-else
-    echo "/etc/resolv.conf does not exist, skipping removal."
+    sudo rm -f /etc/resolv.conf
 fi
+
+# Write a valid resolv.conf safely
+{
+    echo "# Custom DNS configured by script"
+    for dns in "${DNS_SERVERS[@]}"; do
+        echo "nameserver $dns"
+    done
+} | sudo tee /etc/resolv.conf > /dev/null
+
+# Optional: make immutable (skip if unsupported)
+sudo chattr +i /etc/resolv.conf 2>/dev/null || echo "⚠️ chattr not supported, skipping lock."
+
+echo "✅ DNS configuration complete. Current /etc/resolv.conf:"
+cat /etc/resolv.conf
+
+echo "=== DNS Section Finished ==="
+
 
 # Create new resolv.conf safely
 echo "Creating new /etc/resolv.conf with custom DNS..."
