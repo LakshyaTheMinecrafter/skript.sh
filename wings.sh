@@ -198,8 +198,6 @@ echo "✅ SSL certificate installed for $CF_NODE_NAME"
 #    (sudo crontab -l 2>/dev/null; echo "$CRON_JOB") | sudo crontab -
 #    echo "Cron job added successfully."
 #fi
-#!/bin/bash
-
 # Define the cron job
 CRON_JOB="0 23 * * * certbot renew --quiet --deploy-hook \"systemctl restart nginx\""
 
