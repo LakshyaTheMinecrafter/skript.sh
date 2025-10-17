@@ -75,71 +75,43 @@ echo "[Docker] Configuring Docker daemon to disable iptables..."
 #
 # echo "Done! Your VPS should now use the custom DNS."
 
-# --- DNS Configuration Section ---
-DNS_SERVERS=("8.8.8.8" "8.8.4.4" "1.1.1.1" "1.0.0.1")
+fix_dns() {
+    echo "=== Fixing host and Docker DNS ==="
 
-echo "=== DNS Configuration Script Starting ==="
-
-# Only disable systemd-resolved if it exists
-if command -v systemctl &>/dev/null; then
-    if systemctl list-unit-files | grep -q "^systemd-resolved"; then
-        if systemctl is-active --quiet systemd-resolved; then
-            echo "Disabling systemd-resolved..."
-            sudo systemctl disable --now systemd-resolved || true
-        else
-            echo "systemd-resolved is already inactive."
-        fi
-    else
-        echo "systemd-resolved not installed, skipping."
+    # Disable systemd-resolved
+    if command -v systemctl &>/dev/null && systemctl list-unit-files | grep -q "^systemd-resolved"; then
+        sudo systemctl disable --now systemd-resolved || true
     fi
-fi
 
-# Backup current resolv.conf
-if [ -e /etc/resolv.conf ]; then
-    sudo cp /etc/resolv.conf /etc/resolv.conf.backup 2>/dev/null || true
-    sudo chattr -i /etc/resolv.conf 2>/dev/null || true
-    sudo rm -f /etc/resolv.conf
-fi
+    # Fix /etc/resolv.conf
+    RESOLV_CONF="/etc/resolv.conf"
+    if [ -f "$RESOLV_CONF" ]; then
+        sudo cp "$RESOLV_CONF" "${RESOLV_CONF}.bak" 2>/dev/null || true
+        sudo chattr -i "$RESOLV_CONF" 2>/dev/null || true
+        sudo rm -f "$RESOLV_CONF"
+    fi
 
-# Write a valid resolv.conf safely
+    sudo tee "$RESOLV_CONF" > /dev/null <<EOF
+nameserver 8.8.8.8
+nameserver 8.8.4.4
+EOF
+
+    # Fix Docker DNS if installed
+    if command -v docker &>/dev/null; then
+        DOCKER_JSON="/etc/docker/daemon.json"
+        [ -f "$DOCKER_JSON" ] && sudo cp "$DOCKER_JSON" "${DOCKER_JSON}.bak" 2>/dev/null
+
+        sudo tee "$DOCKER_JSON" > /dev/null <<EOF
 {
-    echo "# Custom DNS configured by script"
-    for dns in "${DNS_SERVERS[@]}"; do
-        echo "nameserver $dns"
-    done
-} | sudo tee /etc/resolv.conf > /dev/null
+  "dns": ["8.8.8.8", "8.8.4.4"]
+}
+EOF
+        sudo systemctl restart docker
+    fi
 
-# Optional: make immutable (skip if unsupported)
-sudo chattr +i /etc/resolv.conf 2>/dev/null || echo "⚠️ chattr not supported, skipping lock."
-
-echo "✅ DNS configuration complete. Current /etc/resolv.conf:"
-cat /etc/resolv.conf
-
-echo "=== DNS Section Finished ==="
-
-
-# Create new resolv.conf safely
-echo "Creating new /etc/resolv.conf with custom DNS..."
-sudo bash -c "cat > /etc/resolv.conf <<EOF
-# Custom DNS configured by script
-$(for dns in \"\${DNS_SERVERS[@]}\"; do echo \"nameserver \$dns\"; done)
-EOF" || {
-    echo "⚠️ Failed to write /etc/resolv.conf. Check permissions."
-    exit 0
+    echo "✅ DNS fix complete"
 }
 
-# Try to lock file (skip if unsupported)
-if sudo chattr +i /etc/resolv.conf 2>/dev/null; then
-    echo "Locked /etc/resolv.conf to prevent overwrites."
-else
-    echo "Warning: chattr not supported on this filesystem — skipping lock."
-fi
-
-# Display the result
-echo "✅ DNS configuration complete. Current /etc/resolv.conf:"
-cat /etc/resolv.conf
-
-echo "=== Done! DNS Changed. ==="
 
 
 # Restart Docker to apply changes
