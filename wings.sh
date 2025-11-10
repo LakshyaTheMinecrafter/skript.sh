@@ -45,87 +45,9 @@ else
     curl -sSL https://get.docker.com/ | CHANNEL=stable bash
     sudo systemctl enable --now docker
 fi
-echo "[Docker] Configuring Docker daemon to disable iptables..."
-#DAEMON_JSON="/etc/docker/daemon.json"
 
-# Create or overwrite the file with the desired content
-#sudo tee "$DAEMON_JSON" > /dev/null <<'EOF'
-#{
-#  "dns": ["1.1.1.1", "8.8.8.8"]
-#}
-#EOF
-# Your desired DNS servers
-# DNS_SERVERS=("8.8.8.8" "8.8.4.4" "1.1.1.1" "1.0.0.1")
-#
-# # Disable systemd-resolved (if running)
-# if systemctl is-active --quiet systemd-resolved; then
-#     echo "Disabling systemd-resolved..."
-#     sudo systemctl disable --now systemd-resolved
-# fi
-#
-# # Remove existing resolv.conf
-# if [ -f /etc/resolv.conf ]; then
-#     echo "Removing existing /etc/resolv.conf..."
-#     sudo rm /etc/resolv.conf
-# fi
-#
-# # Create a new resolv.conf
-# echo "Creating new /etc/resolv.conf with custom DNS..."
-# sudo bash -c "cat > /etc/resolv.conf <<EOF
-# # Custom DNS configured by script
-# $(for dns in "${DNS_SERVERS[@]}"; do echo "nameserver $dns"; done)
-# EOF"
-#
-# # Make it immutable to prevent overwrites
-# sudo chattr +i /etc/resolv.conf
-#
-# echo "DNS has been updated and locked. Current /etc/resolv.conf:"
-# cat /etc/resolv.conf
-#
-# echo "Done! Your VPS should now use the custom DNS."
-
-fix_dns() {
-    echo "=== Fixing host and Docker DNS ==="
-
-    # Disable systemd-resolved
-    if command -v systemctl &>/dev/null && systemctl list-unit-files | grep -q "^systemd-resolved"; then
-        sudo systemctl disable --now systemd-resolved || true
-    fi
-
-    # Fix /etc/resolv.conf
-    RESOLV_CONF="/etc/resolv.conf"
-    if [ -f "$RESOLV_CONF" ]; then
-        sudo cp "$RESOLV_CONF" "${RESOLV_CONF}.bak" 2>/dev/null || true
-        sudo chattr -i "$RESOLV_CONF" 2>/dev/null || true
-        sudo rm -f "$RESOLV_CONF"
-    fi
-
-    sudo tee "$RESOLV_CONF" > /dev/null <<EOF
-nameserver 8.8.8.8
-nameserver 8.8.4.4
-EOF
-
-    # Fix Docker DNS if installed
-    if command -v docker &>/dev/null; then
-        DOCKER_JSON="/etc/docker/daemon.json"
-        [ -f "$DOCKER_JSON" ] && sudo cp "$DOCKER_JSON" "${DOCKER_JSON}.bak" 2>/dev/null
-
-        sudo tee "$DOCKER_JSON" > /dev/null <<EOF
-{
-  "dns": ["8.8.8.8", "8.8.4.4"]
-}
-EOF
-        sudo systemctl restart docker
-    fi
-
-    echo "✅ DNS fix complete"
-}
-
-
-
-# Restart Docker to apply changes
 sudo systemctl restart docker
-echo "✅ Docker daemon configured and restarted."
+echo "✅ Docker restarted."
 
 # ---------------- GRUB swap ----------------
 echo "[2/7] Enabling swap accounting..."
