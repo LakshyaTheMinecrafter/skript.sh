@@ -7,10 +7,13 @@ while [[ $# -gt 0 ]]; do
     --zone) CF_ZONE="$2"; shift 2 ;;
     --domain) CF_DOMAIN="$2"; shift 2 ;;
     --email) EMAIL="$2"; shift 2 ;;
+    --node_dns_name) NODE_DNS_NAME="$2"; shift 2 ;;
+    --game_dns_name) GAME_DNS_NAME="$2"; shift 2 ;;
     *) shift ;;
   esac
 done
-
+# $NODE_DNS_NAME
+# $GAME_DNS_NAME
 # Ask for Cloudflare info if not passed
 if [[ -z "$CF_API" ]]; then
     read -p "Enter your Cloudflare API Token: " CF_API
@@ -23,6 +26,12 @@ if [[ -z "$CF_DOMAIN" ]]; then
 fi
 if [[ -z "$EMAIL" ]]; then
     read -p "Enter your Email: " EMAIL
+fi
+if [[ -z "$NODE_DNS_NAME" ]]; then
+    read -p "Enter Node DNS Name: " NODE_DNS_NAME
+fi
+if [[ -z "$GAME_DNS_NAME" ]]; then
+    read -p "Enter Game DNS Name: " GAME_DNS_NAME
 fi
 
 # Ask for Wings node name (used in DNS comment)
@@ -181,7 +190,7 @@ echo "Allowed UDP: 8080, 25565-25599, 19132-19199"
 # ---------------- Cloudflare DNS ----------------
 echo "[5/7] Creating Cloudflare DNS records..."
 SERVER_IP=$(curl -s https://ipinfo.io/ip)
-NEXT_NODE=1
+NEXT_NODE=9
 while true; do
     NODE_CHECK=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records?type=A&name=node-$NEXT_NODE.$CF_DOMAIN" \
         -H "Authorization: Bearer $CF_API" \
@@ -194,8 +203,8 @@ while true; do
     fi
 done
 
-CF_NODE_NAME="node-$NEXT_NODE.$CF_DOMAIN"
-CF_GAME_NAME="game-$NEXT_NODE.$CF_DOMAIN"
+CF_NODE_NAME="$NODE_DNS_NAME-$NEXT_NODE.$CF_DOMAIN"
+CF_GAME_NAME="$GAME_DNS_NAME-$NEXT_NODE.$CF_DOMAIN"
 
 create_dns() {
     local NAME="$1"
