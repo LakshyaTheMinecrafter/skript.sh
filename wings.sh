@@ -90,22 +90,20 @@ EOF
 sudo systemctl enable --now wings
 
 # ---------------- Firewalld ----------------
-echo "[4/7] Setting up firewalld..."
-sudo apt update -y
-sudo apt install -y firewalld
-sudo systemctl enable --now firewalld
+echo "[4/7] Setting up ufw..."
+sudo ufw enable
 
 # TCP ports
 for port in 80 443 2022 5657 56423 8080 25565-25599 19132-19199; do
-    sudo firewall-cmd --permanent --add-port=${port}/tcp
+    sudo ufw allow ${port}/tcp
 done
 # UDP ports
 for port in 8080 25565-25599 19132-19199; do
-    sudo firewall-cmd --permanent --add-port=${port}/udp
+    sudo ufw allow ${port}/udp
 done
-sudo firewall-cmd --reload
+sudo ufw reload
 
-echo "✅ Firewalld setup complete!"
+echo "✅ UFW setup complete!"
 echo "Allowed TCP: 80, 443, 2022, 5657, 56423, 8080, 25565-25599, 19132-19199"
 echo "Allowed UDP: 8080, 25565-25599, 19132-19199"
 
