@@ -1,33 +1,53 @@
-#!/bin/bash
-set -u  # don't exit on non-zero so we can report errors, but still catch unset vars
+#!/usr/bin/env bash
+set -u
 
-# Enable UFW non-interactively
+# Ports/ranges you requested (exactly these)
+TOKENS=(80 443 2022 5657 56423 8080 25565:25599 19132:19199)
+
+# Enable UFW without interactive prompt
 sudo ufw --force enable
 
-# list of ports/ranges you requested
-ports=(80 443 2022 5657 56423 8080 25565:25599 19132:19199)
-
-# function to add a rule and report failure without exiting
-add_rule() {
-  proto=$1
-  port_token=$2
-  # Use the full "proto/from/to/port" form which is robust for ranges
-  if ! sudo ufw allow proto "${proto}" from any to any port "${port_token}"; then
-    echo "⚠️  Failed to add ${proto} rule for ${port_token}" >&2
+# helper: expand tokens to individual ports
+expand_token_to_ports() {
+  token="$1"
+  if [[ "$token" =~ ^[0-9]+:[0-9]+$ ]]; then
+    # colon range like 25565:25599
+    start=${token%%:*}
+    end=${token##*:}
+    seq "$start" "$end"
+  elif [[ "$token" =~ ^[0-9]+-[0-9]+$ ]]; then
+    # dash range (just in case)
+    start=${token%%-*}
+    end=${token##*-}
+    seq "$start" "$end"
   else
-    echo "Added ${proto} ${port_token}"
+    # single port
+    echo "$token"
   fi
 }
 
-# Add both TCP and UDP for each requested port/range
-for p in "${ports[@]}"; do
-  add_rule tcp "${p}"
-done
+# Add rules for a given proto
+add_proto_rules() {
+  proto="$1"  # tcp or udp
+  for token in "${TOKENS[@]}"; do
+    # expand token to one or more ports
+    while IFS= read -r port; do
+      # Use the simple form "ufw allow PORT/PROTO" which is reliable for single ports
+      if sudo ufw allow "${port}/${proto}" >/dev/null 2>&1; then
+        printf "Added %s/%s\n" "$port" "$proto"
+      else
+        # Print a warning but continue
+        printf "Warning: could not add %s/%s (may already exist or be invalid)\n" "$port" "$proto" >&2
+      fi
+    done < <(expand_token_to_ports "$token")
+  done
+}
 
-for p in "${ports[@]}"; do
-  add_rule udp "${p}"
-done
+# Add TCP then UDP
+add_proto_rules tcp
+add_proto_rules udp
 
+# Reload and show summary
 sudo ufw reload
-echo "✅ UFW setup complete - attempted to allow both TCP & UDP for: ${ports[*]}"
-echo "Check status with: sudo ufw status numbered"
+echo "✅ UFW setup complete — attempted to allow the exact ports (TCP & UDP)."
+echo "Check active rules: sudo ufw status numbered"
