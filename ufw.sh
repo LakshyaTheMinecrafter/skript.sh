@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+#set -e
 
 # Enable UFW without interaction
 sudo ufw enable
