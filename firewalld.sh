@@ -15,5 +15,4 @@ done
 sudo ufw reload
 
 echo "✅ UFW setup complete!"
-echo "Allowed TCP: 80, 443, 2022, 5657, 56423, 8080, 25565-25599, 19132-19199"
-echo "Allowed UDP: 8080, 25565-25599, 19132-19199"
+echo "Allowed TCP & UDP: 80, 443, 2022, 5657, 56423, 8080, 25565-25599, 19132-19199"
