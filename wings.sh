@@ -112,9 +112,9 @@ echo "Allowed UDP: 8080, 25565-25599, 19132-19199"
 # ---------------- Cloudflare DNS ----------------
 echo "[5/7] Creating Cloudflare DNS records..."
 SERVER_IP=$(curl -s https://ipinfo.io/ip)
-NEXT_NODE=9
+NEXT_NODE=1
 while true; do
-    NODE_CHECK=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records?type=A&name=node-$NEXT_NODE.$CF_DOMAIN" \
+    NODE_CHECK=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records?type=A&name=$NODE_DNS_NAME$NEXT_NODE.$CF_DOMAIN" \
         -H "Authorization: Bearer $CF_API" \
         -H "Content-Type: application/json")
     
@@ -125,8 +125,8 @@ while true; do
     fi
 done
 
-CF_NODE_NAME="$NODE_DNS_NAME-$NEXT_NODE.$CF_DOMAIN"
-CF_GAME_NAME="$GAME_DNS_NAME-$NEXT_NODE.$CF_DOMAIN"
+CF_NODE_NAME="$NODE_DNS_NAME$NEXT_NODE.$CF_DOMAIN"
+CF_GAME_NAME="$GAME_DNS_NAME$NEXT_NODE.$CF_DOMAIN"
 
 create_dns() {
     local NAME="$1"
