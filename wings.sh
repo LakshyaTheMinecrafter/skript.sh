@@ -107,6 +107,7 @@ ufw allow 25565:25599/tcp
 ufw allow 19132:19199/tcp
 
 # Allow UDP ports
+ufw allow 2022/udp
 ufw allow 25565:25599/udp
 ufw allow 19132:19199/udp
 
@@ -124,7 +125,7 @@ echo "[5/7] Creating Cloudflare DNS records..."
 SERVER_IP=$(curl -s https://ipinfo.io/ip)
 NEXT_NODE=1
 while true; do
-    NODE_CHECK=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records?type=A&name=$NODE_DNS_NAME$NEXT_NODE.$CF_DOMAIN" \
+    NODE_CHECK=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records?type=A&name=$GAME_DNS_NAME$NEXT_NODE.$CF_DOMAIN" \
         -H "Authorization: Bearer $CF_API" \
         -H "Content-Type: application/json")
     
