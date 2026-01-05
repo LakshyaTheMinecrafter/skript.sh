@@ -165,8 +165,7 @@ sudo apt update
 sudo apt install -y certbot
 # Run this if you use Nginx
 sudo apt install -y python3-certbot-nginx
-# Nginx
-certbot certonly --nginx -d $CF_NODE_NAME --email $EMAIL --agree-tos
+certbot certonly --nginx -d $CF_NODE_NAME --email $EMAIL --agree-tos --non-interactive
 echo "✅ SSL certificate installed for $CF_NODE_NAME"
 # Cron job line
 #CRON_JOB="0 23 * * * certbot renew --quiet --deploy-hook \"systemctl restart nginx\""
