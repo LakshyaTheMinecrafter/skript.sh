@@ -95,6 +95,7 @@ sudo systemctl enable --now wings
 echo "Enabling UFW and opening ports..."
 
 # Allow TCP ports
+ufw allow 22/tcp
 ufw allow 80/tcp
 ufw allow 443/tcp
 ufw allow 2022/tcp
