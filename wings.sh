@@ -89,9 +89,7 @@ EOF
 
 sudo systemctl enable --now wings
 
-# ---------------- Firewalld ----------------
-#!/bin/bash
-
+# ---------------- Firewall ----------------
 # UFW script to open specified ports
 
 echo "Enabling UFW and opening ports..."
