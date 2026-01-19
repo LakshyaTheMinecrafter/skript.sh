@@ -1,6 +1,21 @@
 #!/bin/bash
 set -e
-# ---------------- Cloudflare args ----------------
+
+# ============================================================
+#   __        ___                 
+#   \ \      / (_)_ __   __ _ ___ 
+#    \ \ /\ / /| | '_ \ / _` / __|
+#     \ V  V / | | | | | (_| \__ \
+#      \_/\_/  |_|_| |_|\__, |___/
+#                       |___/     
+#
+#              Wings Installer
+#              (By FlyingAura)
+# ============================================================
+
+# ============================================================
+# Argument Parsing (Cloudflare & DNS)
+# ============================================================
 while [[ $# -gt 0 ]]; do
   case $1 in
     --api) CF_API="$2"; shift 2 ;;
@@ -12,34 +27,48 @@ while [[ $# -gt 0 ]]; do
     *) shift ;;
   esac
 done
-# $NODE_DNS_NAME
-# $GAME_DNS_NAME
-# Ask for Cloudflare info if not passed
-if [[ -z "$CF_API" ]]; then
-    read -p "Enter your Cloudflare API Token: " CF_API
-fi
-if [[ -z "$CF_ZONE" ]]; then
-    read -p "Enter your Cloudflare Zone ID: " CF_ZONE
-fi
-if [[ -z "$CF_DOMAIN" ]]; then
-    read -p "Enter your Cloudflare Domain: " CF_DOMAIN
-fi
-if [[ -z "$EMAIL" ]]; then
-    read -p "Enter your Email: " EMAIL
-fi
-if [[ -z "$NODE_DNS_NAME" ]]; then
-    read -p "Enter Node DNS Name: " NODE_DNS_NAME
-fi
-if [[ -z "$GAME_DNS_NAME" ]]; then
-    read -p "Enter Game DNS Name: " GAME_DNS_NAME
-fi
 
-# Ask for Wings node name (used in DNS comment)
+# ============================================================
+# Interactive Prompts (if args not provided)
+# ============================================================
+[[ -z "$CF_API" ]] && read -p "Enter your Cloudflare API Token: " CF_API
+[[ -z "$CF_ZONE" ]] && read -p "Enter your Cloudflare Zone ID: " CF_ZONE
+[[ -z "$CF_DOMAIN" ]] && read -p "Enter your Cloudflare Domain: " CF_DOMAIN
+[[ -z "$EMAIL" ]] && read -p "Enter your Email: " EMAIL
+[[ -z "$NODE_DNS_NAME" ]] && read -p "Enter Node DNS Name: " NODE_DNS_NAME
+[[ -z "$GAME_DNS_NAME" ]] && read -p "Enter Game DNS Name: " GAME_DNS_NAME
+
+# Used only for DNS comments
 read -p "Enter a name for this Wings node (used in DNS comments): " NODE_NAME
 
-# ---------------- Docker ----------------
+# ============================================================
+# Confirmation Summary (NO INSTALL YET)
+# ============================================================
+echo
+echo "================ INSTALLATION SUMMARY ================"
+echo " Cloudflare Zone ID : $CF_ZONE"
+echo " Cloudflare Domain  : $CF_DOMAIN"
+echo " Node DNS Base      : $NODE_DNS_NAME"
+echo " Game DNS Base      : $GAME_DNS_NAME"
+echo " Node Name          : $NODE_NAME"
+echo " Email              : $EMAIL"
+echo "======================================================"
+echo
+read -p "Proceed with installation? (y/N): " CONFIRM
+
+if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
+    echo "❌ Installation cancelled by user."
+    exit 1
+fi
+
+echo "✅ Confirmation received. Starting installation..."
+echo
+
+# ============================================================
+# [1/7] Docker Installation
+# ============================================================
 if command -v docker &> /dev/null; then
-    echo "[1/7] Docker is already installed, skipping installation..."
+    echo "[1/7] Docker already installed — skipping."
 else
     echo "[1/7] Installing Docker..."
     curl -sSL https://get.docker.com/ | CHANNEL=stable bash
@@ -49,22 +78,31 @@ fi
 sudo systemctl restart docker
 echo "✅ Docker restarted."
 
-# ---------------- GRUB swap ----------------
+# ============================================================
+# [2/7] Enable Swap Accounting (GRUB)
+# ============================================================
 echo "[2/7] Enabling swap accounting..."
 if [[ -f /etc/default/grub ]]; then
     sudo sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="/GRUB_CMDLINE_LINUX_DEFAULT="swapaccount=1 /' /etc/default/grub
     sudo update-grub
 else
-    echo "No /etc/default/grub found, skipping swapaccount"
+    echo "⚠️ GRUB config not found — skipping."
 fi
 
-# ---------------- Wings ----------------
+# ============================================================
+# [3/7] Install Pterodactyl Wings
+# ============================================================
 echo "[3/7] Installing Pterodactyl Wings..."
 sudo mkdir -p /etc/pterodactyl
-curl -L -o /usr/local/bin/wings "https://github.com/pterodactyl/wings/releases/latest/download/wings_linux_$([[ "$(uname -m)" == "x86_64" ]] && echo "amd64" || echo "arm64")"
+
+curl -L -o /usr/local/bin/wings \
+"https://github.com/pterodactyl/wings/releases/latest/download/wings_linux_$(
+  [[ "$(uname -m)" == "x86_64" ]] && echo "amd64" || echo "arm64"
+)"
+
 sudo chmod u+x /usr/local/bin/wings
 
-# Create systemd service
+# systemd service
 sudo tee /etc/systemd/system/wings.service > /dev/null <<'EOF'
 [Unit]
 Description=Pterodactyl Wings Daemon
@@ -87,14 +125,12 @@ RestartSec=5s
 WantedBy=multi-user.target
 EOF
 
-sudo systemctl enable --now wings
 
-# ---------------- Firewall ----------------
-# UFW script to open specified ports
+# ============================================================
+# [4/7] Firewall Configuration (UFW)
+# ============================================================
+echo "[4/7] Configuring UFW firewall..."
 
-echo "Enabling UFW and opening ports..."
-
-# Allow TCP ports
 ufw allow 22/tcp
 ufw allow 80/tcp
 ufw allow 443/tcp
@@ -105,34 +141,30 @@ ufw allow 8080/tcp
 ufw allow 25565:25599/tcp
 ufw allow 19132:19199/tcp
 
-# Allow UDP ports
 ufw allow 2022/udp
 ufw allow 25565:25599/udp
 ufw allow 19132:19199/udp
 
-# Enable UFW
 ufw enable
 
-echo "Done. Current status:"
 ufw status verbose
-echo "✅ UFW setup complete!"
-echo "Allowed TCP: 80, 443, 2022, 5657, 56423, 8080, 25565-25599, 19132-19199"
-echo "Allowed UDP: 8080, 25565-25599, 19132-19199"
+echo "✅ Firewall configured."
 
-# ---------------- Cloudflare DNS ----------------
+# ============================================================
+# [5/7] Cloudflare DNS Records
+# ============================================================
 echo "[5/7] Creating Cloudflare DNS records..."
+
 SERVER_IP=$(curl -s https://ipinfo.io/ip)
 NEXT_NODE=1
+
 while true; do
-    NODE_CHECK=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records?type=A&name=$GAME_DNS_NAME$NEXT_NODE.$CF_DOMAIN" \
-        -H "Authorization: Bearer $CF_API" \
-        -H "Content-Type: application/json")
-    
-    if ! echo "$NODE_CHECK" | grep -q '"id":'; then
-        break
-    else
-        NEXT_NODE=$((NEXT_NODE+1))
-    fi
+    CHECK=$(curl -s -X GET \
+      "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records?type=A&name=$GAME_DNS_NAME$NEXT_NODE.$CF_DOMAIN" \
+      -H "Authorization: Bearer $CF_API" \
+      -H "Content-Type: application/json")
+
+    echo "$CHECK" | grep -q '"id":' && NEXT_NODE=$((NEXT_NODE+1)) || break
 done
 
 CF_NODE_NAME="$NODE_DNS_NAME$NEXT_NODE.$CF_DOMAIN"
@@ -141,65 +173,50 @@ CF_GAME_NAME="$GAME_DNS_NAME$NEXT_NODE.$CF_DOMAIN"
 create_dns() {
     local NAME="$1"
     local COMMENT="$2"
-    
-    RESPONSE=$(curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records" \
-        -H "Authorization: Bearer $CF_API" \
-        -H "Content-Type: application/json" \
-        --data '{"type":"A","name":"'"$NAME"'","content":"'"$SERVER_IP"'","ttl":120,"comment":"'"$COMMENT"'"}')
-    
-    if echo "$RESPONSE" | grep -q '"success":true'; then
-        echo "✅ DNS record created: $NAME"
-    else
-        echo "⚠️ DNS record NOT created: $NAME"
-        echo "Response: $RESPONSE"
-    fi
+
+    RESPONSE=$(curl -s -X POST \
+      "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records" \
+      -H "Authorization: Bearer $CF_API" \
+      -H "Content-Type: application/json" \
+      --data '{"type":"A","name":"'"$NAME"'","content":"'"$SERVER_IP"'","ttl":120,"comment":"'"$COMMENT"'"}')
+
+    echo "$RESPONSE" | grep -q '"success":true' \
+      && echo "✅ DNS created: $NAME" \
+      || echo "⚠️ DNS failed: $NAME"
 }
 
 create_dns "$CF_NODE_NAME" "$NODE_NAME"
 create_dns "$CF_GAME_NAME" "$NODE_NAME game ip"
 
-# ---------------- SSL using Cloudflare Global API Key ----------------
-echo "[6/7] Getting SSL"
+# ============================================================
+# [6/7] SSL Certificate (Certbot)
+# ============================================================
+echo "[6/7] Installing SSL certificate..."
 sudo apt update
 sudo apt install -y certbot
-certbot certonly --standalone -d $CF_NODE_NAME --email $EMAIL --agree-tos --non-interactive
-echo "✅ SSL certificate installed for $CF_NODE_NAME"
+certbot certonly --standalone -d "$CF_NODE_NAME" --email "$EMAIL" --agree-tos --non-interactive
+echo "✅ SSL installed."
 
-# ---------------- Final Summary ----------------
-echo
-echo "=============================================="
-echo "✅ Wings Node Setup Complete!"
-echo "Details for adding this node in the Pterodactyl Panel:"
-echo
-echo "  Node Name   : $NODE_NAME"
-echo "  Wings FQDN  : $CF_NODE_NAME"
-echo "  Game FQDN   : $CF_GAME_NAME"
-echo "  Public IP   : $SERVER_IP"
-echo "  Wings Port  : 8080 (default)"
-# RAM calculation
+# ============================================================
+# [7/7] Final Summary
+# ============================================================
 TOTAL_RAM_MB=$(free -m | awk '/^Mem:/ {print $2}')
 ALLOC_RAM_MB=$(( TOTAL_RAM_MB * 90 / 100 ))
 
-# Disk calculation
 TOTAL_DISK_MB=$(df --output=size -m / | tail -1)
-ALLOC_DISK_MB=$(( TOTAL_DISK_MB - 61440 ))   # reserve 60 GB
-if (( ALLOC_DISK_MB < 0 )); then
-  ALLOC_DISK_MB=0
-fi
+ALLOC_DISK_MB=$(( TOTAL_DISK_MB - 61440 ))
+(( ALLOC_DISK_MB < 0 )) && ALLOC_DISK_MB=0
 
-echo "  RAM (alloc) : ${ALLOC_RAM_MB} MB (from total ${TOTAL_RAM_MB} MB)"
-echo "  Disk (alloc): ${ALLOC_DISK_MB} MB (from total ${TOTAL_DISK_MB} MB)"
+LOCATION=$(curl -s https://ipinfo.io/$SERVER_IP | awk -F'"' '/"city"/{c=$4} /"country"/{k=$4} END{print c ", " k}')
 
-LOCATION=$(curl -s https://ipinfo.io/$SERVER_IP | awk -F'"' '/"city"/{city=$4} /"country"/{country=$4} END{print city ", " country}')
-echo "  Location    : $LOCATION"
 echo
-echo "IP Aliases:"
-echo "  Wings Node : $CF_NODE_NAME → $SERVER_IP"
-echo "  Game Node  : $CF_GAME_NAME → $SERVER_IP"
-echo
-echo "Open Ports:"
-echo "  TCP: 80, 443, 2022, 5657, 56423, 8080, 25565-25599, 19132-19199"
-echo "  UDP: 8080, 25565-25599, 19132-19199"
-echo
-echo "Your server is protected with firewalld and required ports are open."
-echo "=============================================="
+echo "======================================================"
+echo "✅ Wings Node Setup Complete"
+echo " Node Name   : $NODE_NAME"
+echo " Wings FQDN  : $CF_NODE_NAME"
+echo " Game FQDN   : $CF_GAME_NAME"
+echo " Public IP   : $SERVER_IP"
+echo " RAM (90%)   : ${ALLOC_RAM_MB} MB"
+echo " Disk        : ${ALLOC_DISK_MB} MB"
+echo " Location    : $LOCATION"
+echo "======================================================"
