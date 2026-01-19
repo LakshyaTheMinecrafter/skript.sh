@@ -44,9 +44,17 @@ done
 [[ -z "$EMAIL" ]] && read -p "Email: " EMAIL
 [[ -z "$NODE_DNS_NAME" ]] && read -p "Node DNS base (eg node): " NODE_DNS_NAME
 [[ -z "$GAME_DNS_NAME" ]] && read -p "Game DNS base (eg game): " GAME_DNS_NAME
-read -p "Wings Node Name (for DNS comment): " NODE_NAME
 [[ -z "$PASSWORD" ]] && read -p "Password for using in script (MySQL user): " PASSWORD
+while true; do
+  read -p "Wings Node Name (allowed: a-z A-Z 0-9 _ . - [space]): " NODE_NAME
 
+  if [[ "$NODE_NAME" =~ ^[a-zA-Z0-9_.\- ]+$ ]]; then
+    break
+  else
+    echo "❌ Invalid name."
+    echo "   Allowed characters: a-z A-Z 0-9 _ . - (space)"
+  fi
+done
 # ============================================================
 # [1/7] Dependencies
 # ============================================================
