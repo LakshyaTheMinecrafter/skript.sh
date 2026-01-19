@@ -200,23 +200,40 @@ echo "✅ SSL installed."
 # ============================================================
 # [7/7] Final Summary
 # ============================================================
+# RAM calculation
 TOTAL_RAM_MB=$(free -m | awk '/^Mem:/ {print $2}')
-ALLOC_RAM_MB=$(( TOTAL_RAM_MB * 90 / 100 ))
+ALLOC_RAM_MB=$TOTAL_RAM_MB
 
+# Disk calculation
 TOTAL_DISK_MB=$(df --output=size -m / | tail -1)
-ALLOC_DISK_MB=$(( TOTAL_DISK_MB - 61440 ))
-(( ALLOC_DISK_MB < 0 )) && ALLOC_DISK_MB=0
+ALLOC_DISK_MB=$TOTAL_DISK_MB
 
 LOCATION=$(curl -s https://ipinfo.io/$SERVER_IP | awk -F'"' '/"city"/{c=$4} /"country"/{k=$4} END{print c ", " k}')
-
+# ---------------- Final Summary ----------------
 echo
-echo "======================================================"
-echo "✅ Wings Node Setup Complete"
-echo " Node Name   : $NODE_NAME"
-echo " Wings FQDN  : $CF_NODE_NAME"
-echo " Game FQDN   : $CF_GAME_NAME"
-echo " Public IP   : $SERVER_IP"
-echo " RAM (90%)   : ${ALLOC_RAM_MB} MB"
-echo " Disk        : ${ALLOC_DISK_MB} MB"
-echo " Location    : $LOCATION"
-echo "======================================================"
+echo "=============================================="
+echo "✅ Wings Node Setup Complete!"
+echo "Details for adding this node in the Pterodactyl Panel:"
+echo
+echo "  Node Name   : $NODE_NAME"
+echo "  Wings FQDN  : $CF_NODE_NAME"
+echo "  Game FQDN   : $CF_GAME_NAME"
+echo "  Public IP   : $SERVER_IP"
+echo "  Wings Port  : 8080 (default)"
+
+echo "  RAM (alloc) : ${ALLOC_RAM_MB} MB (from total ${TOTAL_RAM_MB} MB)"
+echo "  Disk (alloc): ${ALLOC_DISK_MB} MB (from total ${TOTAL_DISK_MB} MB)"
+
+LOCATION=$(curl -s https://ipinfo.io/$SERVER_IP | awk -F'"' '/"city"/{city=$4} /"country"/{country=$4} END{print city ", " country}')
+echo "  Location    : $LOCATION"
+echo
+echo "IP Aliases:"
+echo "  Wings Node : $CF_NODE_NAME → $SERVER_IP"
+echo "  Game Node  : $CF_GAME_NAME → $SERVER_IP"
+echo
+echo "Open Ports:"
+echo "  TCP: 80, 443, 2022, 5657, 56423, 8080, 25565-25599, 19132-19199"
+echo "  UDP: 8080, 25565-25599, 19132-19199"
+echo
+echo "Your server is protected with firewalld and required ports are open."
+echo "=============================================="
