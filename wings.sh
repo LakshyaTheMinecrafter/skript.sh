@@ -29,7 +29,6 @@ while [[ $# -gt 0 ]]; do
     --domain) CF_DOMAIN="$2"; shift 2 ;;
     --email) EMAIL="$2"; shift 2 ;;
     --node_dns_name) NODE_DNS_NAME="$2"; shift 2 ;;
-    --game_dns_name) GAME_DNS_NAME="$2"; shift 2 ;;
     --password) PASSWORD="$2"; shift 2 ;;
     *) shift ;;
   esac
@@ -43,7 +42,6 @@ done
 [[ -z "$CF_DOMAIN" ]] && read -p "Cloudflare Domain: " CF_DOMAIN
 [[ -z "$EMAIL" ]] && read -p "Email: " EMAIL
 [[ -z "$NODE_DNS_NAME" ]] && read -p "Node DNS base (eg node): " NODE_DNS_NAME
-[[ -z "$GAME_DNS_NAME" ]] && read -p "Game DNS base (eg game): " GAME_DNS_NAME
 [[ -z "$PASSWORD" ]] && read -p "Password for using in script (MySQL user): " PASSWORD
 while true; do
   read -p "Wings Node Name (allowed: a-z A-Z 0-9 _ . - [space]): " NODE_NAME
@@ -211,10 +209,8 @@ cloudflare_dns() {
   done
 
   CF_NODE_NAME="$NODE_DNS_NAME$NEXT.$CF_DOMAIN"
-  CF_GAME_NAME="$GAME_DNS_NAME$NEXT.$CF_DOMAIN"
 
   create_dns "$CF_NODE_NAME" "$NODE_NAME"
-  create_dns "$CF_GAME_NAME" "$NODE_NAME game ip"
 }
 
 # ============================================================
@@ -254,7 +250,6 @@ echo "Details for adding this node in the Pterodactyl Panel:"
 echo
 echo "  Node Name   : $NODE_NAME"
 echo "  Wings FQDN  : $CF_NODE_NAME"
-echo "  Game FQDN   : $CF_GAME_NAME"
 echo "  Public IP   : $SERVER_IP"
 echo "  Wings Port  : 8080 (default)"
 echo "  RAM (alloc) : ${TOTAL_RAM_MB} MB (from total ${TOTAL_RAM_MB} MB)"
@@ -271,7 +266,6 @@ echo "  Linked Node    : $NODE_NAME"
 echo
 echo "IP Aliases:"
 echo "  Wings Node : $CF_NODE_NAME → $SERVER_IP"
-echo "  Game Node  : $CF_GAME_NAME → $SERVER_IP"
 echo
 echo "Open Ports:"
 echo "  TCP: 80, 443, 2022, 3306, 5657, 56423, 8080, 25565-25599, 19132-19199"
