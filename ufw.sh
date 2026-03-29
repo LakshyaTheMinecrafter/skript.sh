@@ -8,10 +8,10 @@ echo "Enabling UFW and opening ports..."
 ufw allow 22/tcp
 ufw allow 80/tcp
 ufw allow 443/tcp
-ufw allow 2022/tcp
+ufw allow 6789/tcp # STFP PORT
 ufw allow 5657/tcp
 ufw allow 56423/tcp
-ufw allow 8080/tcp
+ufw allow 9876/tcp # WINGS PORT
 ufw allow 25565:25599/tcp
 ufw allow 19132:19199/tcp
 
