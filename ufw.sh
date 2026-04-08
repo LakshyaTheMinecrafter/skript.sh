@@ -12,12 +12,12 @@ ufw allow 6789/tcp # STFP PORT
 ufw allow 5657/tcp
 ufw allow 56423/tcp
 ufw allow 9876/tcp # WINGS PORT
-ufw allow 25565:25599/tcp
-ufw allow 19132:19199/tcp
+ufw allow 25565:25999/tcp
+ufw allow 19132:19999/tcp
 
 # Allow UDP ports
-ufw allow 25565:25599/udp
-ufw allow 19132:19199/udp
+ufw allow 25565:25999/udp
+ufw allow 19132:19999/udp
 
 # Enable UFW
 ufw enable
