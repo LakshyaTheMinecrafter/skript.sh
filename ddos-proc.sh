@@ -2,6 +2,8 @@
 
 set -e
 
+export DEBIAN_FRONTEND=noninteractive
+
 echo "[INFO] Updating packages..."
 apt update -y
 
