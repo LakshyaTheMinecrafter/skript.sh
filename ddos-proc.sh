@@ -43,9 +43,17 @@ else
     echo "[INFO] curl already installed. Skipping."
 fi
 
+echo
 echo "[INFO] Downloading Python script..."
 curl -fsSL \
 https://raw.githubusercontent.com/LakshyaTheMinecrafter/skript.sh/main/ddos-proc.py \
 -o /tmp/ddos-proc.py
-echo "[INFO] Running Python script..."
-python3 /tmp/ddos-proc.py
+
+chmod +x /tmp/ddos-proc.py
+
+echo
+echo "[INFO] Setup complete."
+echo "[INFO] Run the script manually using:"
+echo
+echo "python3 /tmp/ddos-proc.py"
+echo
