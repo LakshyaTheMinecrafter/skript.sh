@@ -7,6 +7,7 @@ if [ "$EUID" -ne 0 ]; then
     echo "[ERROR] Please run this script as root."
     exit 1
 fi
+
 echo "[INFO] Updating packages..."
 apt update -y
 
@@ -34,25 +35,25 @@ else
     echo "[INFO] requests already installed. Skipping."
 fi
 
-# curl
-if ! command -v curl >/dev/null 2>&1; then
-    echo "[INFO] Installing curl..."
-    apt install -y curl
+# wget
+if ! command -v wget >/dev/null 2>&1; then
+    echo "[INFO] Installing wget..."
+    apt install -y wget
 else
-    echo "[INFO] curl already installed. Skipping."
+    echo "[INFO] wget already installed. Skipping."
 fi
 
 echo
 echo "[INFO] Downloading Python script..."
-curl -fsSL \
-https://raw.githubusercontent.com/LakshyaTheMinecrafter/skript.sh/main/ddos-proc.py \
--o /tmp/ddos-proc.py
-
-chmod +x /tmp/ddos-proc.py
+wget -qO /tmp/ddos-proc.py \
+https://raw.githubusercontent.com/LakshyaTheMinecrafter/skript.sh/main/ddos-proc.py
 
 echo
 echo "[INFO] Setup complete."
-echo "[INFO] Run the script manually using:"
 echo
+echo "Run the script using:"
 echo "python3 /tmp/ddos-proc.py"
+echo
+echo "Need help?"
+echo "discord.gg/hexiumnodes"
 echo
