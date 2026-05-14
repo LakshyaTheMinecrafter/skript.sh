@@ -2,10 +2,12 @@
 
 set -e
 
+export DEBIAN_FRONTEND=noninteractive
+
 echo "[INFO] Updating packages..."
 apt update -y
 
-# Install python3 only if missing
+# Python3
 if ! command -v python3 >/dev/null 2>&1; then
     echo "[INFO] Installing python3..."
     apt install -y python3
@@ -13,7 +15,7 @@ else
     echo "[INFO] python3 already installed. Skipping."
 fi
 
-# Install pip3 only if missing
+# pip3
 if ! command -v pip3 >/dev/null 2>&1; then
     echo "[INFO] Installing pip3..."
     apt install -y python3-pip
@@ -21,7 +23,7 @@ else
     echo "[INFO] pip3 already installed. Skipping."
 fi
 
-# Install requests package only if missing
+# requests module
 if ! python3 -c "import requests" >/dev/null 2>&1; then
     echo "[INFO] Installing python3-requests..."
     apt install -y python3-requests
@@ -29,7 +31,7 @@ else
     echo "[INFO] requests already installed. Skipping."
 fi
 
-# Install curl only if missing
+# curl
 if ! command -v curl >/dev/null 2>&1; then
     echo "[INFO] Installing curl..."
     apt install -y curl
