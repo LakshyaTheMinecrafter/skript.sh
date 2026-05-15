@@ -672,7 +672,7 @@ The installer will:
 - Telling NO will make the protection very weak!
 """)
 
-    confirm = input(f"\n{CYAN}Continue firewall configuration? (Y recommend) (y/n): {RESET}").lower()
+    confirm = input(f"\n{CYAN}This will delete ALL UFW rules except SSH (22/tcp IPv4 & IPv6). Continue? (y/N): {RESET}").lower()
 
     if confirm != "y":
         warning("Skipping firewall configuration.")
@@ -680,43 +680,11 @@ The installer will:
 
     run_command("sudo apt-get install -y ufw")
 
-    run_command("sudo ufw allow 22/tcp")
+    run_command("sudo ufw --force reset")
 
-    process = subprocess.run(
-        "sudo ufw status numbered",
-        shell=True,
-        text=True,
-        capture_output=True
-    )
-
-    lines = process.stdout.splitlines()
-
-    rules_to_delete = []
-
-    for line in lines:
-
-        if "22/tcp" in line:
-            continue
-
-        if "[" in line and "]" in line:
-            try:
-                number = line.split("[")[1].split("]")[0].strip()
-                rules_to_delete.append(number)
-            except:
-                pass
-
-    for rule_number in reversed(rules_to_delete):
-
-        run_command(
-            f'echo "y" | sudo ufw delete {rule_number}',
-            check=False
-        )
-
-    run_command('echo "y" | sudo ufw enable', check=False)
-
-    print()
-
-    run_command("sudo ufw status")
+    run_command("ufw allow 22/tcp")
+    run_command("ufw --force enable")
+    run_command("ufw status verbose")
 
     success("Firewall configured successfully.")
 
