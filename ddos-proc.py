@@ -546,6 +546,30 @@ def deploy_custom_rules(api_key, zone_id, ruleset_id, server_ip):
             },
 
             "action": "skip"
+        },
+
+        {
+            "description": "ʙʟᴏᴄᴋ ʀᴇɢɪᴏɴs ᴀɴᴅ ᴇxᴛʀᴀs",
+
+            "expression": r'''(http.user_agent contains "CensysInspect/1.1") or (ip.src.country in {"T1"}) or (ip.src in {162.142.125.0/24 167.94.138.0/24 199.45.154.0/24 199.45.155.0/24 206.168.34.0/24 2602:80d:1000:b0cc:e::/80 2602:80d:1003::/112 2602:80d:1004::/112}) or (http.user_agent contains "CensysInspect") or (http.user_agent contains "ShodanInspect") or (http.user_agent contains "Shodan") or (http.user_agent contains "Censys") or (ip.src in {37.114.50.51}) or (http.user_agent contains "CensysInspect") or (http.user_agent contains "CensysInspect") or (http.user_agent contains "CensysInspect/1.1") or (http.user_agent contains "Censys") or (http.user_agent contains "ZmEu") or (http.user_agent contains "Nikto") or (http.user_agent contains "Nmap") or (http.user_agent contains "sqlmap") or (http.user_agent contains "acunetix") or (http.user_agent contains "netsparker") or (http.user_agent contains "masscan") or (http.user_agent contains "dirbuster") or (http.user_agent contains "fimap") or (http.user_agent contains "AppScan") or (http.user_agent contains "whatweb") or (http.user_agent contains "OpenVAS") or (http.user_agent contains "nessus") or (http.user_agent contains "w3af") or (http.user_agent contains "netcraft") or (http.user_agent contains "jaascois") or (http.user_agent contains "sqlninja") or (http.user_agent contains "pangolin") or (http.user_agent contains "Xenu") or (http.user_agent contains "paros") or (http.user_agent contains "safetydog") or (http.user_agent contains "crawler4j") or (http.user_agent contains "HTTrack") or (http.user_agent contains "libwww-perl") or (http.user_agent contains "python-requests") or (http.user_agent contains "WinHttp") or (http.user_agent contains "Apache-HttpClient") or (http.user_agent contains "httpclient") or (http.user_agent contains "curl") or (http.user_agent contains "wget") or (http.user_agent contains "java") or (http.user_agent contains "Go-http-client") or (http.user_agent contains "axios") or (http.user_agent contains "bot") or (http.user_agent contains "scan") or (http.user_agent contains "spider") or (http.user_agent contains "scraper") or (http.user_agent contains "mj12bot") or (http.user_agent contains "AhrefsBot") or (http.user_agent contains "SemrushBot") or (http.user_agent contains "DotBot") or (http.user_agent contains "PetalBot") or (http.user_agent contains "SeznamBot") or (http.user_agent contains "Gigabot") or (http.user_agent contains "BLEXBot") or (http.user_agent contains "Bytespider") or (http.user_agent contains "Googlebot") or (http.user_agent contains "Googlebot-Image") or (http.user_agent contains "AdsBot-Google") or (http.user_agent contains "Bingbot") or (http.user_agent contains "bingbot") or (http.user_agent contains "DuckDuckBot") or (http.user_agent contains "Baiduspider") or (http.user_agent contains "YandexBot") or (http.user_agent contains "Sogou") or (http.user_agent contains "Facebot") or (http.user_agent contains "facebookexternalhit") or (http.user_agent contains "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)") or (http.user_agent contains "Mozilla/5.0 (Linux; Android 8.0.0; Nexus 5 Build/OPR6.170623.014) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/64.0.3282.137 Mobile Safari/537.36") or (http.user_agent contains "Mozilla/5.0 (compatible; Googlebot-Image/1.0; +http://www.google.com/bot.html)") or (http.user_agent contains "AdsBot-Google (+http://www.google.com/adsbot.html)") or (http.user_agent contains "Mozilla/5.0 (Linux; Android 9; Pixel 3 XL Build/PQ1A.190205.004) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/73.0.3683.90 Mobile Safari/537.36")''',
+
+            "action": "block"
+        },
+
+        {
+            "description": "ғɪʀᴇᴡᴀʟʟ ᴘʀᴏᴛᴇᴄᴛɪᴏɴ",
+
+            "expression": r'''(cf.verified_bot_category in {"Monitoring & Analytics" "Advertising & Marketing" "Academic Research" "AI Crawler" "Feed Fetcher"}) or (not ip.src.country in {"BT" "IN" "NP" "PK" "LK" "BD"})''',
+
+            "action": "challenge"
+        },
+
+        {
+            "description": " ᴄᴀᴘᴛᴄʜᴀ ᴘʀᴏᴛᴇᴄᴛɪᴏɴ",
+
+            "expression": "true",
+
+            "action": "managed_challenge"
         }
     ]
 
