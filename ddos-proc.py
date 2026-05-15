@@ -24,7 +24,7 @@ BOLD = "\033[1m"
 # =========================================================
 # CONFIG
 # =========================================================
-TUTORIAL_URL = "https://youtube.com/yet-to-be-added"
+TUTORIAL_URL = "https://www.youtube.com/watch?v=mwRWyDM28TY"
 
 # =========================================================
 # ASCII BANNER
@@ -700,7 +700,6 @@ def install_protection():
     warning("""
 Requirements:
 - Pterodactyl Panel must already be installed
-- SSL certificates must already exist
 - NGINX must already be installed
 - Script must be run as root
 
